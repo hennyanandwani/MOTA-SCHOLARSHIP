@@ -1,0 +1,148 @@
+{
+  "nav": {
+    "home": "होम",
+    "schemes": "योजनाएं",
+    "applications": "आवेदन",
+    "documents": "दस्तावेज़",
+    "alerts": "सूचनाएं",
+    "eligibility": "पात्रता जांचें",
+    "transparency": "पारदर्शिता",
+    "dashboard": "डैशबोर्ड",
+    "postSelection": "चयन-पश्चात",
+    "simulator": "नीति सिम्युलेटर",
+    "fraud": "धोखाधड़ी समूह",
+    "users": "उपयोगकर्ता",
+    "integrations": "एकीकरण",
+    "more": "अधिक"
+  },
+  "common": {
+    "loading": "लोड हो रहा है...",
+    "error": "कुछ गलत हो गया",
+    "retry": "पुनः प्रयास",
+    "cancel": "रद्द करें",
+    "save": "सहेजें",
+    "submit": "सबमिट करें",
+    "back": "वापस",
+    "next": "आगे",
+    "close": "बंद करें",
+    "view": "देखें",
+    "edit": "संपादित करें",
+    "delete": "हटाएं",
+    "search": "खोजें",
+    "filter": "फ़िल्टर",
+    "all": "सभी",
+    "none": "कोई नहीं",
+    "yes": "हाँ",
+    "no": "नहीं",
+    "required": "आवश्यक",
+    "optional": "वैकल्पिक",
+    "comingSoon": "जल्द आ रहा है",
+    "noData": "डेटा उपलब्ध नहीं",
+    "skipToContent": "मुख्य सामग्री पर जाएं"
+  },
+  "auth": {
+    "login": "लॉगिन",
+    "register": "पंजीकरण",
+    "logout": "लॉगआउट",
+    "mobile": "मोबाइल नंबर",
+    "otp": "ओटीपी",
+    "sendOtp": "ओटीपी भेजें",
+    "verifyOtp": "ओटीपी सत्यापित करें",
+    "demoHint": "डेमो ओटीपी: 123456",
+    "selectRole": "डेमो के लिए भूमिका चुनें",
+    "loginAs": "लॉगिन करें",
+    "continueAs": "जारी रखें"
+  },
+  "landing": {
+    "heroHeading": "आपका भविष्य। समर्थित।",
+    "heroSubheading": "जनजातीय छात्रवृत्ति, सरल बनाई गई।",
+    "apply": "अभी आवेदन करें",
+    "track": "आवेदन ट्रैक करें",
+    "checkEligibility": "पात्रता जांचें",
+    "schemesTitle": "उपलब्ध छात्रवृत्तियां",
+    "howItWorks": "कैसे काम करता है",
+    "step": {
+      "register": "पंजीकरण",
+      "apply": "आवेदन",
+      "verify": "सत्यापन",
+      "select": "चयन",
+      "receive": "प्राप्ति"
+    },
+    "trust": {
+      "digilocker": "डिजीलॉकर जुड़ा",
+      "aadhaar": "आधार-सुरक्षित",
+      "colleges": "सत्यापित संस्थान",
+      "audit": "ऑडिट-ट्रेस्ड"
+    },
+    "notices": "सूचनाएं",
+    "help": "सहायता लें",
+    "grievance": "शिकायत दर्ज करें"
+  },
+  "schemes": {
+    "category": {
+      "pre-matric": "प्री-मैट्रिक",
+      "post-matric": "पोस्ट-मैट्रिक",
+      "fellowship": "फेलोशिप",
+      "overseas": "विदेश",
+      "top-class": "टॉप क्लास",
+      "other": "अन्य"
+    },
+    "status": {
+      "draft": "मसौदा",
+      "published": "सक्रिय",
+      "archived": "संग्रहीत"
+    },
+    "closingOn": "अंतिम तिथि",
+    "applyNow": "अभी आवेदन करें",
+    "viewDetails": "विवरण देखें",
+    "seats": "सीटें",
+    "benefits": "लाभ"
+  },
+  "status": {
+    "verified": "सत्यापित",
+    "pending": "लंबित",
+    "deficient": "अपूर्ण",
+    "in_review": "समीक्षाधीन",
+    "selected": "चयनित",
+    "rejected": "अस्वीकृत",
+    "waitlisted": "प्रतीक्षा सूची",
+    "draft": "मसौदा",
+    "in_progress": "प्रगति में",
+    "on_hold": "रुका हुआ",
+    "withdrawn": "वापस लिया",
+    "closed": "बंद"
+  },
+  "accessibility": {
+    "textSize": "पाठ आकार",
+    "contrast": "उच्च कंट्रास्ट",
+    "darkMode": "डार्क मोड",
+    "language": "भाषा",
+    "smallText": "अ-",
+    "normalText": "अ",
+    "largeText": "अ+",
+    "xlargeText": "अ++"
+  },
+  "student": {
+    "profile": "मेरी प्रोफ़ाइल",
+    "myApplications": "मेरे आवेदन",
+    "myDocuments": "मेरे दस्तावेज़",
+    "notifications": "सूचनाएं",
+    "grievance": "शिकायत दर्ज करें",
+    "assisted": "सहायता मोड"
+  },
+  "admin": {
+    "allSchemes": "सभी योजनाएं",
+    "commandPalette": "कमांड पैलेट",
+    "searchRoutes": "पेज और क्रियाएं खोजें..."
+  },
+  "pageStub": {
+    "comingIn": "में आ रहा है",
+    "notBuiltYet": "यह पेज एक भविष्य के चरण में उपलब्ध होगा।"
+  },
+  "errors": {
+    "notFound": "पेज नहीं मिला",
+    "unauthorized": "इस भूमिका के लिए उपलब्ध नहीं",
+    "switchRole": "भूमिका बदलें",
+    "tryAgain": "पुनः प्रयास करें"
+  }
+}

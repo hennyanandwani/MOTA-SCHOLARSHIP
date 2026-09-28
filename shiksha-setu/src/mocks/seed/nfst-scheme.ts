@@ -1,0 +1,342 @@
+import type { SchemeConfig } from '@/types';
+
+// ─── NFST Scheme: National Fellowship for Scheduled Tribes ────────────────────
+// Full detail: fellowship, research fields, supervisor, merit scoring,
+// 3 human stages + committee. Self-applicant (PhD/MPhil students).
+
+export const nfstScheme: SchemeConfig = {
+  id: 'scheme-nfst',
+  code: 'NFST-2024',
+  slug: 'national-fellowship-scheduled-tribes',
+  category: 'fellowship',
+  name: { en: 'National Fellowship for Scheduled Tribes', hi: 'अनुसूचित जनजाति राष्ट्रीय फेलोशिप' },
+  tagline: { en: 'Supporting ST scholars in research and higher studies', hi: 'शोध में जनजातीय छात्रों का साथ' },
+  icon: 'FlaskConical',
+  status: 'published',
+  version: { number: 3, publishedAt: '2024-04-01', publishedBy: 'scheme_admin', changeNote: 'Updated income cap to 8 LPA' },
+  applicantType: 'self',
+  window: { opensAt: '2024-07-01', closesAt: '2024-10-31' },
+
+  benefits: [
+    { icon: 'IndianRupee', label: { en: 'JRF Stipend', hi: 'जेआरएफ वेतन' }, amount: 37000, unit: 'per month' },
+    { icon: 'IndianRupee', label: { en: 'SRF Stipend', hi: 'एसआरएफ वेतन' }, amount: 42000, unit: 'per month' },
+    { icon: 'BookOpen', label: { en: 'Contingency Grant', hi: 'आकस्मिक अनुदान' }, amount: 20000, unit: 'per year' },
+    { icon: 'Home', label: { en: 'HRA', hi: 'एचआरए' }, unit: 'as per rules' },
+  ],
+
+  seats: {
+    total: 750, // Illustrative. Actual numbers as per scheme notification.
+    quotas: [
+      { key: 'general', label: { en: 'Open', hi: 'सामान्य' }, percentage: 40 },
+      { key: 'women', label: { en: 'Women', hi: 'महिला' }, percentage: 30 },
+      { key: 'pwd', label: { en: 'PwD', hi: 'दिव्यांग' }, percentage: 5 },
+      { key: 'northeast', label: { en: 'North-East', hi: 'उत्तर-पूर्व' }, percentage: 10 },
+      { key: 'pvtg', label: { en: 'PVTG', hi: 'पीवीटीजी' }, percentage: 15 },
+    ],
+  },
+
+  sections: [
+    {
+      key: 'personal',
+      label: { en: 'Personal Details', hi: 'व्यक्तिगत विवरण' },
+      fields: [
+        { key: 'fullName', label: { en: 'Full Name', hi: 'पूरा नाम' }, type: 'text', required: true, prefillFrom: { source: 'profile', path: 'name' } },
+        { key: 'dob', label: { en: 'Date of Birth', hi: 'जन्म तिथि' }, type: 'date', required: true, prefillFrom: { source: 'profile', path: 'dob' } },
+        { key: 'gender', label: { en: 'Gender', hi: 'लिंग' }, type: 'select', required: true, options: [
+          { value: 'male', label: { en: 'Male', hi: 'पुरुष' } },
+          { value: 'female', label: { en: 'Female', hi: 'महिला' } },
+          { value: 'other', label: { en: 'Other', hi: 'अन्य' } },
+        ] },
+        { key: 'tribe', label: { en: 'Scheduled Tribe Name', hi: 'अनुसूचित जनजाति का नाम' }, type: 'tribe', required: true },
+        { key: 'isPvtg', label: { en: 'Particularly Vulnerable Tribal Group (PVTG)?', hi: 'पीवीटीजी?' }, type: 'boolean', required: false },
+        { key: 'isPwd', label: { en: 'Person with Disability?', hi: 'दिव्यांग?' }, type: 'boolean', required: false },
+        { key: 'state', label: { en: 'State/UT', hi: 'राज्य/केंद्र शासित प्रदेश' }, type: 'select', required: true, options: [
+          { value: 'JH', label: { en: 'Jharkhand', hi: 'झारखंड' } },
+          { value: 'OD', label: { en: 'Odisha', hi: 'ओडिशा' } },
+          { value: 'MP', label: { en: 'Madhya Pradesh', hi: 'मध्य प्रदेश' } },
+          { value: 'CG', label: { en: 'Chhattisgarh', hi: 'छत्तीसगढ़' } },
+          { value: 'RJ', label: { en: 'Rajasthan', hi: 'राजस्थान' } },
+          { value: 'GJ', label: { en: 'Gujarat', hi: 'गुजरात' } },
+          { value: 'MH', label: { en: 'Maharashtra', hi: 'महाराष्ट्र' } },
+          { value: 'AS', label: { en: 'Assam', hi: 'असम' } },
+          { value: 'MN', label: { en: 'Manipur', hi: 'मणिपुर' } },
+          { value: 'TR', label: { en: 'Tripura', hi: 'त्रिपुरा' } },
+          { value: 'ML', label: { en: 'Meghalaya', hi: 'मेघालय' } },
+          { value: 'MZ', label: { en: 'Mizoram', hi: 'मिज़ोरम' } },
+          { value: 'NL', label: { en: 'Nagaland', hi: 'नागालैंड' } },
+          { value: 'AR', label: { en: 'Arunachal Pradesh', hi: 'अरुणाचल प्रदेश' } },
+          { value: 'SK', label: { en: 'Sikkim', hi: 'सिक्किम' } },
+        ] },
+      ],
+    },
+    {
+      key: 'academic',
+      label: { en: 'Academic & Research Details', hi: 'शैक्षणिक एवं शोध विवरण' },
+      fields: [
+        { key: 'institution', label: { en: 'Institution / University', hi: 'संस्था / विश्वविद्यालय' }, type: 'institution', required: true },
+        { key: 'institutionCode', label: { en: 'AISHE Code', hi: 'AISHE कोड' }, type: 'text', required: true, helper: { en: 'Find your institution code on the AISHE portal', hi: 'AISHE पोर्टल पर कोड खोजें' } },
+        { key: 'researchProgram', label: { en: 'Research Program', hi: 'शोध कार्यक्रम' }, type: 'select', required: true, options: [
+          { value: 'phd', label: { en: 'Ph.D.', hi: 'पीएचडी' } },
+          { value: 'mphil', label: { en: 'M.Phil.', hi: 'एमफिल' } },
+        ] },
+        { key: 'subject', label: { en: 'Research Subject / Discipline', hi: 'शोध विषय' }, type: 'text', required: true },
+        { key: 'researchTitle', label: { en: 'Research Topic / Thesis Title', hi: 'शोध विषय / थीसिस शीर्षक' }, type: 'text', required: true },
+        { key: 'supervisor', label: { en: 'Supervisor Name', hi: 'पर्यवेक्षक का नाम' }, type: 'text', required: true },
+        { key: 'supervisorEmail', label: { en: 'Supervisor Email', hi: 'पर्यवेक्षक का ईमेल' }, type: 'email', required: true },
+        { key: 'enrollmentDate', label: { en: 'Date of Enrollment', hi: 'नामांकन तिथि' }, type: 'date', required: true },
+        { key: 'netJrfQualified', label: { en: 'UGC-NET / JRF Qualified?', hi: 'यूजीसी-नेट / जेआरएफ उत्तीर्ण?' }, type: 'boolean', required: true },
+        { key: 'netJrfRollNo', label: { en: 'NET/JRF Roll Number', hi: 'नेट/जेआरएफ रोल नंबर' }, type: 'text', required: false,
+          showIf: { '==': [{ var: 'netJrfQualified' }, true] } },
+        { key: 'previousFellowship', label: { en: 'Currently availing any other fellowship?', hi: 'कोई अन्य फेलोशिप प्राप्त कर रहे हैं?' }, type: 'boolean', required: true },
+        { key: 'previousFellowshipName', label: { en: 'Previous Fellowship Name', hi: 'पिछली फेलोशिप का नाम' }, type: 'text', required: false,
+          showIf: { '==': [{ var: 'previousFellowship' }, true] } },
+      ],
+    },
+    {
+      key: 'income',
+      label: { en: 'Family Income', hi: 'पारिवारिक आय' },
+      fields: [
+        { key: 'annualFamilyIncome', label: { en: 'Annual Family Income (₹)', hi: 'वार्षिक पारिवारिक आय (₹)' }, type: 'number', required: true, validation: { min: 0, max: 2000000 } },
+        { key: 'incomeSource', label: { en: 'Primary Income Source', hi: 'प्राथमिक आय स्रोत' }, type: 'select', required: true, options: [
+          { value: 'agriculture', label: { en: 'Agriculture / Forest produce', hi: 'कृषि / वन उपज' } },
+          { value: 'employment', label: { en: 'Employment (Govt/Private)', hi: 'रोजगार (सरकारी/निजी)' } },
+          { value: 'selfemployed', label: { en: 'Self-employed', hi: 'स्व-रोजगार' } },
+          { value: 'other', label: { en: 'Other', hi: 'अन्य' } },
+        ] },
+      ],
+    },
+    {
+      key: 'bank',
+      label: { en: 'Bank Details', hi: 'बैंक विवरण' },
+      fields: [
+        { key: 'bankAccountNo', label: { en: 'Bank Account Number', hi: 'बैंक खाता नंबर' }, type: 'text', required: true },
+        { key: 'ifsc', label: { en: 'IFSC Code', hi: 'आईएफएससी कोड' }, type: 'text', required: true },
+        { key: 'bankName', label: { en: 'Bank Name', hi: 'बैंक का नाम' }, type: 'text', required: true },
+        { key: 'accountHolderName', label: { en: 'Account Holder Name', hi: 'खाता धारक का नाम' }, type: 'text', required: true },
+      ],
+    },
+  ],
+
+  documents: [
+    {
+      key: 'caste_certificate',
+      label: { en: 'Caste Certificate (ST)', hi: 'जाति प्रमाण पत्र (एसटी)' },
+      mandatory: true,
+      acceptedSources: ['upload', 'digilocker'],
+      preferredSource: 'digilocker',
+      validityMonths: 60,
+      ocrFields: [
+        { key: 'name', label: { en: 'Name on Certificate', hi: 'प्रमाण पत्र पर नाम' }, confidenceThreshold: 0.85 },
+        { key: 'tribe', label: { en: 'Tribe Name', hi: 'जनजाति नाम' }, confidenceThreshold: 0.80 },
+        { key: 'issuingAuthority', label: { en: 'Issuing Authority', hi: 'जारीकर्ता प्राधिकरण' }, confidenceThreshold: 0.75 },
+      ],
+      maxSizeMb: 5,
+      mimeTypes: ['application/pdf', 'image/jpeg', 'image/png'],
+    },
+    {
+      key: 'income_certificate',
+      label: { en: 'Income Certificate', hi: 'आय प्रमाण पत्र' },
+      mandatory: true,
+      acceptedSources: ['upload', 'digilocker'],
+      preferredSource: 'digilocker',
+      validityMonths: 12,
+      ocrFields: [
+        { key: 'income', label: { en: 'Annual Income (₹)', hi: 'वार्षिक आय (₹)' }, confidenceThreshold: 0.90 },
+        { key: 'name', label: { en: 'Name', hi: 'नाम' }, confidenceThreshold: 0.85 },
+      ],
+      maxSizeMb: 5,
+      mimeTypes: ['application/pdf', 'image/jpeg', 'image/png'],
+    },
+    {
+      key: 'enrollment_proof',
+      label: { en: 'Enrollment / Admission Letter', hi: 'नामांकन / प्रवेश पत्र' },
+      mandatory: true,
+      acceptedSources: ['upload', 'institution'],
+      preferredSource: 'institution',
+      ocrFields: [
+        { key: 'program', label: { en: 'Program Name', hi: 'कार्यक्रम नाम' }, confidenceThreshold: 0.80 },
+        { key: 'enrollmentDate', label: { en: 'Enrollment Date', hi: 'नामांकन तिथि' }, confidenceThreshold: 0.85 },
+      ],
+      maxSizeMb: 5,
+      mimeTypes: ['application/pdf'],
+    },
+    {
+      key: 'supervisor_certificate',
+      label: { en: "Supervisor's Certificate", hi: 'पर्यवेक्षक प्रमाण पत्र' },
+      mandatory: true,
+      acceptedSources: ['upload'],
+      preferredSource: 'upload',
+      ocrFields: [],
+      maxSizeMb: 5,
+      mimeTypes: ['application/pdf'],
+    },
+    {
+      key: 'net_jrf_certificate',
+      label: { en: 'NET/JRF Certificate', hi: 'नेट/जेआरएफ प्रमाण पत्र' },
+      mandatory: false,
+      acceptedSources: ['upload', 'digilocker'],
+      preferredSource: 'digilocker',
+      ocrFields: [
+        { key: 'rollNo', label: { en: 'Roll Number', hi: 'रोल नंबर' }, confidenceThreshold: 0.90 },
+      ],
+      maxSizeMb: 5,
+      mimeTypes: ['application/pdf', 'image/jpeg'],
+      showIf: { '==': [{ var: 'netJrfQualified' }, true] },
+    },
+    {
+      key: 'bank_passbook',
+      label: { en: 'Bank Passbook / Cancelled Cheque', hi: 'बैंक पासबुक / रद्द चेक' },
+      mandatory: true,
+      acceptedSources: ['upload'],
+      preferredSource: 'upload',
+      ocrFields: [
+        { key: 'accountNo', label: { en: 'Account Number', hi: 'खाता नंबर' }, confidenceThreshold: 0.90 },
+        { key: 'ifsc', label: { en: 'IFSC', hi: 'IFSC' }, confidenceThreshold: 0.90 },
+      ],
+      maxSizeMb: 5,
+      mimeTypes: ['application/pdf', 'image/jpeg', 'image/png'],
+    },
+    {
+      key: 'photo_id',
+      label: { en: 'Photo ID (Aadhaar / Passport)', hi: 'फोटो आईडी (आधार / पासपोर्ट)' },
+      mandatory: true,
+      acceptedSources: ['digilocker', 'upload'],
+      preferredSource: 'digilocker',
+      ocrFields: [
+        { key: 'name', label: { en: 'Name', hi: 'नाम' }, confidenceThreshold: 0.90 },
+        { key: 'dob', label: { en: 'Date of Birth', hi: 'जन्म तिथि' }, confidenceThreshold: 0.88 },
+      ],
+      maxSizeMb: 5,
+      mimeTypes: ['application/pdf', 'image/jpeg', 'image/png'],
+    },
+  ],
+
+  rules: [
+    {
+      key: 'st_category',
+      label: { en: 'Must be Scheduled Tribe', hi: 'अनुसूचित जनजाति का सदस्य होना आवश्यक' },
+      kind: 'eligibility',
+      logic: { '!!': [{ var: 'tribe' }] },
+      severity: 'blocking',
+      explainMet: { en: 'Applicant is from a Scheduled Tribe', hi: 'आवेदक अनुसूचित जनजाति से हैं' },
+      explainFail: { en: 'You must belong to a Scheduled Tribe', hi: 'आपको अनुसूचित जनजाति से संबंधित होना चाहिए' },
+      dataDeps: ['tribe'],
+    },
+    {
+      key: 'income_limit',
+      label: { en: 'Family income must not exceed ₹8 LPA', hi: 'पारिवारिक आय ₹8 लाख से अधिक नहीं होनी चाहिए' },
+      kind: 'eligibility',
+      logic: { '<=': [{ var: 'annualFamilyIncome' }, 800000] },
+      severity: 'blocking',
+      explainMet: { en: 'Family income is within the ₹8 LPA limit', hi: 'पारिवारिक आय ₹8 लाख की सीमा के भीतर है' },
+      explainFail: { en: 'Family income exceeds ₹8 LPA limit', hi: 'पारिवारिक आय ₹8 लाख की सीमा से अधिक है' },
+      dataDeps: ['annualFamilyIncome'],
+    },
+    {
+      key: 'research_program',
+      label: { en: 'Must be enrolled in PhD or MPhil', hi: 'पीएचडी या एमफिल में नामांकित होना आवश्यक' },
+      kind: 'eligibility',
+      logic: { 'in': [{ var: 'researchProgram' }, ['phd', 'mphil']] },
+      severity: 'blocking',
+      explainMet: { en: 'Enrolled in eligible research program', hi: 'पात्र शोध कार्यक्रम में नामांकित हैं' },
+      explainFail: { en: 'Must be enrolled in PhD or MPhil program', hi: 'पीएचडी या एमफिल कार्यक्रम में नामांकित होना आवश्यक है' },
+      dataDeps: ['researchProgram'],
+    },
+    {
+      key: 'no_other_fellowship',
+      label: { en: 'Must not be availing another fellowship', hi: 'कोई अन्य फेलोशिप नहीं होनी चाहिए' },
+      kind: 'eligibility',
+      logic: { '!=': [{ var: 'previousFellowship' }, true] },
+      severity: 'blocking',
+      explainMet: { en: 'Not availing any other fellowship', hi: 'कोई अन्य फेलोशिप नहीं ले रहे हैं' },
+      explainFail: { en: 'Cannot avail two fellowships simultaneously', hi: 'एक साथ दो फेलोशिप नहीं ले सकते' },
+      dataDeps: ['previousFellowship'],
+    },
+    {
+      key: 'institution_registered',
+      label: { en: 'Institution must be AISHE registered', hi: 'संस्था AISHE पंजीकृत होनी चाहिए' },
+      kind: 'document',
+      logic: { '!!': [{ var: 'institutionCode' }] },
+      severity: 'blocking',
+      explainMet: { en: 'Institution has a valid AISHE code', hi: 'संस्था का वैध AISHE कोड है' },
+      explainFail: { en: 'Institution must have a valid AISHE registration code', hi: 'संस्था का वैध AISHE पंजीकरण कोड होना आवश्यक है' },
+      dataDeps: ['institutionCode'],
+    },
+  ],
+
+  workflow: {
+    stages: [
+      { key: 'draft', label: { en: 'Draft', hi: 'मसौदा' }, role: 'student', slaDays: 30, order: 0, kind: 'auto' },
+      { key: 'submitted', label: { en: 'Submitted', hi: 'सबमिट' }, role: 'student', slaDays: 1, order: 1, kind: 'auto' },
+      { key: 'institution_verification', label: { en: 'Institution Verification', hi: 'संस्था सत्यापन' }, role: 'institution_officer', slaDays: 7, order: 2, kind: 'human' },
+      { key: 'state_screening', label: { en: 'State Screening', hi: 'राज्य जांच' }, role: 'state_officer', slaDays: 14, order: 3, kind: 'human' },
+      { key: 'ministry_review', label: { en: 'Ministry Review', hi: 'मंत्रालय समीक्षा' }, role: 'ministry_reviewer', slaDays: 21, order: 4, kind: 'human' },
+      { key: 'committee_selection', label: { en: 'Committee Selection', hi: 'समिति चयन' }, role: 'selection_committee', slaDays: 30, order: 5, kind: 'committee' },
+      { key: 'selected', label: { en: 'Selected', hi: 'चयनित' }, role: 'selection_committee', slaDays: 7, order: 6, kind: 'auto' },
+      { key: 'waitlisted', label: { en: 'Waitlisted', hi: 'प्रतीक्षा सूची' }, role: 'selection_committee', slaDays: 30, order: 6, kind: 'auto' },
+      { key: 'rejected', label: { en: 'Rejected', hi: 'अस्वीकृत' }, role: 'ministry_reviewer', slaDays: 0, order: 7, kind: 'auto' },
+      { key: 'deficient', label: { en: 'Deficient', hi: 'अपूर्ण' }, role: 'institution_officer', slaDays: 15, order: 2, kind: 'human' },
+    ],
+    transitions: [
+      { from: 'draft', to: 'submitted', allowedRoles: ['student', 'guardian'], requiresReason: false },
+      { from: 'submitted', to: 'institution_verification', allowedRoles: ['institution_officer', 'super_admin'], requiresReason: false },
+      { from: 'submitted', to: 'deficient', allowedRoles: ['institution_officer', 'state_officer', 'super_admin'], requiresReason: true, label: { en: 'Mark Deficient', hi: 'अपूर्ण चिह्नित करें' } },
+      { from: 'institution_verification', to: 'state_screening', allowedRoles: ['institution_officer', 'super_admin'], requiresReason: false },
+      { from: 'institution_verification', to: 'deficient', allowedRoles: ['institution_officer', 'super_admin'], requiresReason: true },
+      { from: 'deficient', to: 'submitted', allowedRoles: ['student', 'guardian'], requiresReason: false, label: { en: 'Resubmit', hi: 'पुनः सबमिट करें' } },
+      { from: 'state_screening', to: 'ministry_review', allowedRoles: ['state_officer', 'super_admin'], requiresReason: false },
+      { from: 'state_screening', to: 'deficient', allowedRoles: ['state_officer', 'super_admin'], requiresReason: true },
+      { from: 'state_screening', to: 'rejected', allowedRoles: ['state_officer', 'super_admin'], requiresReason: true },
+      { from: 'ministry_review', to: 'committee_selection', allowedRoles: ['ministry_reviewer', 'super_admin'], requiresReason: false },
+      { from: 'ministry_review', to: 'rejected', allowedRoles: ['ministry_reviewer', 'super_admin'], requiresReason: true },
+      { from: 'committee_selection', to: 'selected', allowedRoles: ['selection_committee', 'super_admin'], requiresReason: false },
+      { from: 'committee_selection', to: 'waitlisted', allowedRoles: ['selection_committee', 'super_admin'], requiresReason: false },
+      { from: 'committee_selection', to: 'rejected', allowedRoles: ['selection_committee', 'super_admin'], requiresReason: true },
+    ],
+  },
+
+  selection: {
+    method: 'rank',
+    criteria: [
+      { key: 'academic_merit', label: { en: 'Academic Merit (last degree %)', hi: 'शैक्षणिक योग्यता' }, weight: 40, source: 'formData.lastDegreePct' },
+      { key: 'net_jrf', label: { en: 'NET/JRF Score', hi: 'नेट/जेआरएफ स्कोर' }, weight: 30, source: 'formData.netScore' },
+      { key: 'research_quality', label: { en: 'Research Proposal Quality', hi: 'शोध प्रस्ताव गुणवत्ता' }, weight: 20, source: 'manual_score' },
+      { key: 'pvtg_bonus', label: { en: 'PVTG Bonus Points', hi: 'पीवीटीजी बोनस अंक' }, weight: 10, source: 'formData.isPvtg' },
+    ],
+    tieBreakers: ['annualFamilyIncome', 'dob'],
+    quotas: [
+      { key: 'women', label: { en: 'Women', hi: 'महिला' }, percentage: 30, condition: { '==': [{ var: 'gender' }, 'female'] } },
+      { key: 'pwd', label: { en: 'PwD', hi: 'दिव्यांग' }, percentage: 5, condition: { '==': [{ var: 'isPwd' }, true] } },
+      { key: 'pvtg', label: { en: 'PVTG', hi: 'पीवीटीजी' }, percentage: 15, condition: { '==': [{ var: 'isPvtg' }, true] } },
+    ],
+  },
+
+  communication: {
+    templates: {
+      submitted: {
+        subject: { en: 'Application Received – NFST 2024', hi: 'आवेदन प्राप्त – NFST 2024' },
+        body: { en: 'Dear {{name}}, your NFST application {{appId}} has been received.', hi: 'प्रिय {{name}}, आपका NFST आवेदन {{appId}} प्राप्त हो गया है।' },
+      },
+      selected: {
+        subject: { en: 'Congratulations! NFST Fellowship Awarded', hi: 'बधाई! NFST फेलोशिप प्रदान की गई' },
+        body: { en: 'Dear {{name}}, you have been selected for NFST fellowship.', hi: 'प्रिय {{name}}, आपको NFST फेलोशिप के लिए चुना गया है।' },
+      },
+      deficient: {
+        subject: { en: 'Action Required – NFST Application', hi: 'कार्रवाई आवश्यक – NFST आवेदन' },
+        body: { en: 'Dear {{name}}, your application {{appId}} has deficiencies. Please rectify within 15 days.', hi: 'प्रिय {{name}}, आपके आवेदन {{appId}} में कमियां हैं। कृपया 15 दिनों में सुधारें।' },
+      },
+    },
+  },
+
+  postSelection: {
+    tasks: [
+      { key: 'join_letter', label: { en: 'Submit Joining Letter', hi: 'ज्वाइनिंग लेटर जमा करें' }, role: 'student', daysAfterSelection: 30 },
+      { key: 'bank_verify', label: { en: 'Bank Account Verification', hi: 'बैंक खाता सत्यापन' }, role: 'finance_officer', daysAfterSelection: 15 },
+      { key: 'sanction_issue', label: { en: 'Issue Sanction Letter', hi: 'स्वीकृति पत्र जारी करें' }, role: 'finance_officer', daysAfterSelection: 45 },
+    ],
+    paymentSchedule: [
+      { installment: 1, label: { en: 'First Installment (6 months)', hi: 'पहली किस्त (6 माह)' }, daysAfterSelection: 60, percentage: 50 },
+      { installment: 2, label: { en: 'Second Installment (6 months)', hi: 'दूसरी किस्त (6 माह)' }, daysAfterSelection: 240, percentage: 50 },
+    ],
+  },
+};
