@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { StudentSettingsProvider } from '@/components/student/settings/StudentSettingsProvider';
 
 export const metadata: Metadata = {
   title: 'Scholarship & Fellowship Management System',
@@ -14,7 +15,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <StudentSettingsProvider>
+          {children}
+        </StudentSettingsProvider>
+      </body>
     </html>
   );
 }

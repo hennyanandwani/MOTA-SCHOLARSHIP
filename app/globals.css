@@ -17,3 +17,30 @@
 html { scroll-behavior: smooth; }
 body { margin: 0; background: var(--background); color: var(--foreground); font-family: Arial, Helvetica, sans-serif; }
 button, input, select, textarea { font: inherit; }
+
+#student-portal-root[data-font-size="large"] main :where(p, li, dt, dd, label, button, a, input, select, h1, h2, h3) {
+  font-size: 1.05em;
+}
+
+#student-portal-root[data-high-contrast="true"] :where(.text-slate-400, .text-slate-500, .text-slate-600, [class*="text-[#64748B]"], [class*="text-[#94A3B8]"]) {
+  color: #334155 !important;
+}
+
+#student-portal-root[data-high-contrast="true"] :where([class*="border-[#DCE3EC]"], [class*="border-[#EEF1F5]"], [class*="border-slate-200"]) {
+  border-color: #64748B !important;
+}
+
+#student-portal-root[data-high-contrast="true"] :focus-visible {
+  outline: 3px solid #0F5E9C !important;
+  outline-offset: 2px;
+}
+
+#student-portal-root[data-reduced-motion="true"],
+#student-portal-root[data-reduced-motion="true"] *,
+#student-portal-root[data-reduced-motion="true"] *::before,
+#student-portal-root[data-reduced-motion="true"] *::after {
+  scroll-behavior: auto !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}

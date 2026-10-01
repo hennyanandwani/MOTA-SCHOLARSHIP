@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
+import { useStudentTranslation } from '@/components/student/settings/StudentSettingsProvider';
 import {
   LayoutDashboard,
   Search,
@@ -87,6 +88,7 @@ const navigationIcons: Record<string, React.ElementType> = {
 
 export function Sidebar({ items = defaultItems, title = 'Student Portal' }: SidebarProps) {
   const pathname = usePathname();
+  const t = useStudentTranslation();
 
   return (
     <aside className="relative z-20 flex w-full shrink-0 flex-col border-b border-[#DCE3EC] bg-white lg:fixed lg:left-0 lg:top-0 lg:h-screen lg:w-64 lg:border-b-0 lg:border-r">
@@ -95,7 +97,7 @@ export function Sidebar({ items = defaultItems, title = 'Student Portal' }: Side
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#173F7A] text-xs font-bold text-white">
           <Image
             src="/images/india-emblem.svg"
-            alt="Government of India emblem"
+            alt={t('Government of India emblem')}
             width={20}
             height={32}
             className="brightness-0 invert"
@@ -104,17 +106,17 @@ export function Sidebar({ items = defaultItems, title = 'Student Portal' }: Side
 
         <div>
           <p className="text-sm font-bold text-[#172033]">
-            Scholarship Portal
+            {t('Scholarship Portal')}
           </p>
 
-          <p className="text-[10px] text-slate-500">{title}</p>
+          <p className="text-[10px] text-slate-500">{t(title)}</p>
         </div>
       </div>
 
       {/* Navigation */}
       <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-2 lg:px-4 lg:py-6">
         <p className="hidden px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 lg:block">
-          Workspace
+          {t('Workspace')}
         </p>
 
         <nav className="flex min-w-0 flex-wrap gap-1 lg:mt-3 lg:block lg:space-y-1">
@@ -138,7 +140,7 @@ export function Sidebar({ items = defaultItems, title = 'Student Portal' }: Side
               >
                 {Icon && <Icon size={18} />}
 
-                <span className="min-w-0">{item.label}</span>
+                <span className="min-w-0">{t(item.label)}</span>
               </Link>
             );
           })}
@@ -146,24 +148,24 @@ export function Sidebar({ items = defaultItems, title = 'Student Portal' }: Side
 
         {/* Account */}
         <p className="mt-8 hidden px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 lg:block">
-          Account
+          {t('Account')}
         </p>
 
         <nav className="mt-3 hidden space-y-1 lg:block">
           <Link
             href="/student/profile"
-            className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 hover:text-[#173F7A]"
+            className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${pathname === '/student/profile' ? 'bg-blue-50 text-[#173F7A]' : 'text-slate-600 hover:bg-slate-50 hover:text-[#173F7A]'}`}
           >
             <UserRound size={18} />
-            Profile
+            {t('Profile')}
           </Link>
 
           <Link
             href="/student/settings"
-            className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 hover:text-[#173F7A]"
+            className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${pathname === '/student/settings' ? 'bg-blue-50 text-[#173F7A]' : 'text-slate-600 hover:bg-slate-50 hover:text-[#173F7A]'}`}
           >
             <Settings size={18} />
-            Settings
+            {t('Settings')}
           </Link>
 
           <Link
@@ -171,7 +173,7 @@ export function Sidebar({ items = defaultItems, title = 'Student Portal' }: Side
             className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 hover:text-[#173F7A]"
           >
             <HelpCircle size={18} />
-            Help & Support
+            {t('Help & Support')}
           </Link>
         </nav>
       </div>
@@ -185,18 +187,18 @@ export function Sidebar({ items = defaultItems, title = 'Student Portal' }: Side
 
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-semibold text-[#172033]">
-              Student Account
+              {t('Student Account')}
             </p>
 
             <p className="truncate text-[10px] text-slate-500">
-              Scheduled Tribe Student
+              {t('Scheduled Tribe Student')}
             </p>
           </div>
 
           <button
             type="button"
             className="text-slate-400 transition hover:text-red-500"
-            title="Logout"
+            title={t('Logout')}
           >
             <LogOut size={16} />
           </button>
