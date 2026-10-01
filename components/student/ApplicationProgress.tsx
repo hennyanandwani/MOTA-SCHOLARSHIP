@@ -1,4 +1,5 @@
 import { Check } from 'lucide-react';
+import { useStudentTranslation } from '@/components/student/settings/StudentSettingsProvider';
 
 const stages = [
   'Submitted',
@@ -10,14 +11,15 @@ const stages = [
 ];
 
 export function ApplicationProgress() {
+  const t = useStudentTranslation();
   return (
     <section id="application-progress" className="rounded-xl border border-[#DCE3EC] bg-white p-4 shadow-[0_1px_3px_rgba(23,32,51,0.04)] sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 className="text-base font-semibold text-[#172033]">Application Progress</h2>
+          <h2 className="text-base font-semibold text-[#172033]">{t('Application Progress')}</h2>
           <p className="mt-1 text-xs text-[#64748B]">National Fellowship for ST Students</p>
         </div>
-        <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-[#1D5796]">Current stage</span>
+        <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-[#1D5796]">{t('Current stage')}</span>
       </div>
 
       <ol className="mt-5 grid gap-0 sm:grid-cols-6 sm:gap-2">
@@ -32,8 +34,8 @@ export function ApplicationProgress() {
                 {isComplete ? <Check size={13} aria-hidden="true" /> : index + 1}
               </span>
               <span className={`pt-1 text-xs leading-4 sm:pt-0 sm:text-[11px] ${isCurrent ? 'font-semibold text-[#173F7A]' : isComplete ? 'font-medium text-[#16805B]' : 'text-[#64748B]'}`}>
-                {stage}
-                {isCurrent && <span className="ml-2 rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-semibold text-[#2563A8] sm:hidden">Now</span>}
+                {t(stage)}
+                {isCurrent && <span className="ml-2 rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-semibold text-[#2563A8] sm:hidden">{t('Now')}</span>}
               </span>
             </li>
           );
@@ -41,7 +43,7 @@ export function ApplicationProgress() {
       </ol>
 
       <p className="mt-3 rounded-lg bg-blue-50/70 px-3 py-2.5 text-xs text-[#31577F]">
-        Your application is currently being reviewed.
+        {t('Your application is currently being reviewed.')}
       </p>
     </section>
   );

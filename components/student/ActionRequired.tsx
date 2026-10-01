@@ -1,5 +1,8 @@
+'use client';
+
 import Link from 'next/link';
 import { AlertTriangle, ArrowRight, FileWarning } from 'lucide-react';
+import { useStudentTranslation } from '@/components/student/settings/StudentSettingsProvider';
 
 const items = [
   {
@@ -19,6 +22,7 @@ const items = [
 ];
 
 export function ActionRequired() {
+  const t = useStudentTranslation();
   return (
     <section id="action-required" className="rounded-xl border border-amber-200 bg-[#FFFCF5] p-4 shadow-[0_1px_3px_rgba(23,32,51,0.04)] sm:p-5">
       <div className="flex items-center gap-2">
@@ -26,8 +30,8 @@ export function ActionRequired() {
           <AlertTriangle size={17} aria-hidden="true" />
         </span>
         <div>
-          <h2 className="text-base font-semibold text-[#172033]">Action Required</h2>
-          <p className="text-xs text-[#64748B]">Two items need your attention</p>
+          <h2 className="text-base font-semibold text-[#172033]">{t('Action Required')}</h2>
+          <p className="text-xs text-[#64748B]">{t('Two items need your attention')}</p>
         </div>
       </div>
 
@@ -37,13 +41,13 @@ export function ActionRequired() {
             <div className="flex gap-3">
               <Icon className="mt-0.5 shrink-0 text-[#B7791F]" size={18} aria-hidden="true" />
               <div>
-                <h3 className="text-sm font-semibold text-[#172033]">{title}</h3>
-                <p className="mt-1 text-xs font-semibold text-[#9A6414]">{status}</p>
-                <p className="mt-2 max-w-xl text-xs leading-5 text-[#64748B]">{description}</p>
+                <h3 className="text-sm font-semibold text-[#172033]">{t(title)}</h3>
+                <p className="mt-1 text-xs font-semibold text-[#9A6414]">{t(status)}</p>
+                <p className="mt-2 max-w-xl text-xs leading-5 text-[#64748B]">{t(description)}</p>
               </div>
             </div>
             <Link href="#applications" className="inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-lg border border-[#DCE3EC] px-3 py-2 text-xs font-semibold text-[#173F7A] transition hover:border-[#2563A8] hover:bg-blue-50 sm:self-center">
-              {action}<ArrowRight size={14} aria-hidden="true" />
+              {t(action)}<ArrowRight size={14} aria-hidden="true" />
             </Link>
           </article>
         ))}

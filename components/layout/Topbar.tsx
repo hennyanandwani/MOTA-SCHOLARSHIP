@@ -1,6 +1,8 @@
 'use client';
 
-import { Bell, ChevronDown, Search } from 'lucide-react';
+import { Bell, Search } from 'lucide-react';
+import { AccountMenu } from '@/components/layout/AccountMenu';
+import { useStudentTranslation } from '@/components/student/settings/StudentSettingsProvider';
 
 type TopbarProps = {
   title?: string;
@@ -14,6 +16,7 @@ export function Topbar({
   role,
 }: TopbarProps) {
   const pageTitle = title ?? role ?? 'Dashboard';
+  const t = useStudentTranslation();
 
   return (
     <header className="sticky top-0 z-30 border-b border-[#DCE3EC] bg-white lg:ml-64">
@@ -22,11 +25,11 @@ export function Topbar({
         <div className="flex items-center gap-3">
           <div>
             <h1 className="text-base font-bold text-[#172033] sm:text-lg">
-              {pageTitle}
+              {t(pageTitle)}
             </h1>
 
             <p className="hidden text-xs text-slate-500 sm:block">
-              {subtitle}
+              {t(subtitle)}
             </p>
           </div>
         </div>
@@ -36,8 +39,8 @@ export function Topbar({
           <button
             type="button"
             className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-[#173F7A]"
-            title="Search"
-            aria-label="Search"
+            title={t('Search')}
+            aria-label={t('Search')}
           >
             <Search size={19} />
           </button>
@@ -46,7 +49,7 @@ export function Topbar({
             type="button"
             className="relative rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-[#173F7A]"
             title="Notifications"
-            aria-label="Notifications, 5 unread"
+            aria-label={t('Notifications, 5 unread')}
           >
             <Bell size={19} />
 
@@ -55,29 +58,7 @@ export function Topbar({
 
           <div className="hidden h-7 w-px bg-slate-200 sm:block" />
 
-          <button
-            type="button"
-            className="flex items-center gap-2 rounded-lg p-1.5 transition hover:bg-slate-50"
-          >
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-[#173F7A]">
-              ST
-            </div>
-
-            <div className="hidden text-left md:block">
-              <p className="text-xs font-semibold text-[#172033]">
-                Student (Demo)
-              </p>
-
-              <p className="text-[10px] text-slate-500">
-                Demo profile
-              </p>
-            </div>
-
-            <ChevronDown
-              size={14}
-              className="hidden text-slate-400 md:block"
-            />
-          </button>
+          <AccountMenu userName="Aarav Bhil" role="Student" avatarInitials="AB" />
         </div>
       </div>
     </header>

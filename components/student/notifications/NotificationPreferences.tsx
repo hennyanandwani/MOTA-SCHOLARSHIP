@@ -1,0 +1,11 @@
+import Link from 'next/link';
+import { ArrowRight, BellRing, ClipboardCheck, Info } from 'lucide-react';
+
+export function NotificationPreferences() {
+  return (
+    <div className="grid min-w-0 gap-4 xl:grid-cols-2">
+      <section className="rounded-xl border border-[#DCE3EC] bg-white p-4 shadow-[0_1px_3px_rgba(23,32,51,0.04)] sm:p-5"><div className="flex items-start gap-2.5"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-[#2563A8]"><BellRing size={16} aria-hidden="true" /></span><div className="min-w-0"><h2 className="text-sm font-semibold text-[#172033]">Notification preferences</h2><p className="mt-1 text-xs leading-5 text-[#64748B]">Manage how you receive updates about your applications and important scheme information.</p></div></div><button type="button" className="mt-3 inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border border-[#B8C9DC] bg-white px-3 text-xs font-semibold text-[#173F7A] hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563A8]">Notification Settings</button><p className="mt-2 text-[10px] text-[#64748B]">Settings are a visual demo control.</p></section>
+      <section className="rounded-xl border border-[#DCE3EC] bg-[#F8FAFC] p-4 sm:p-5"><div className="flex items-start gap-2.5"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-[#2563A8]"><ClipboardCheck size={16} aria-hidden="true" /></span><div className="min-w-0"><h2 className="text-sm font-semibold text-[#172033]">Have pending actions?</h2><p className="mt-1 text-xs leading-5 text-[#64748B]">Check Action Required to review documents or information that may need your attention.</p></div></div><Link href="/student/action-required" className="mt-3 inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-[#173F7A] px-3 text-xs font-semibold text-white hover:bg-[#123365] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563A8]"><span>View Action Required</span><ArrowRight size={13} aria-hidden="true" /></Link><p className="mt-3 flex items-start gap-1.5 text-[10px] leading-4 text-[#64748B]"><Info size={12} className="mt-0.5 shrink-0" aria-hidden="true" />Automated reminders do not make official eligibility or selection decisions.</p></section>
+    </div>
+  );
+}
