@@ -1,5 +1,6 @@
 'use client';
 
+import { usePathname } from 'next/navigation';
 import { Bell, Search } from 'lucide-react';
 import { AccountMenu } from '@/components/layout/AccountMenu';
 import { useStudentTranslation } from '@/components/student/settings/StudentSettingsProvider';
@@ -8,15 +9,20 @@ type TopbarProps = {
   title?: string;
   subtitle?: string;
   role?: string;
+  context?: 'student' | 'admin';
 };
 
 export function Topbar({
   title,
-  subtitle = 'Manage your scholarship and fellowship applications',
+  subtitle,
   role,
+  context,
 }: TopbarProps) {
-  const pageTitle = title ?? role ?? 'Dashboard';
+  const pathname = usePathname();
   const t = useStudentTranslation();
+  const isAdmin = context === 'admin' || (context === undefined && pathname.startsWith('/admin'));
+  const pageTitle = title ?? (isAdmin ? 'Admin Dashboard' : role ?? 'Dashboard');
+  const pageSubtitle = subtitle ?? (isAdmin ? 'Manage and monitor scholarship and fellowship operations' : 'Manage your scholarship and fellowship applications');
 
   return (
     <header className="sticky top-0 z-30 border-b border-[#DCE3EC] bg-white lg:ml-64">
@@ -29,7 +35,7 @@ export function Topbar({
             </h1>
 
             <p className="hidden text-xs text-slate-500 sm:block">
-              {t(subtitle)}
+              {t(pageSubtitle)}
             </p>
           </div>
         </div>
@@ -58,7 +64,12 @@ export function Topbar({
 
           <div className="hidden h-7 w-px bg-slate-200 sm:block" />
 
-          <AccountMenu userName="Aarav Bhil" role="Student" avatarInitials="AB" />
+          <AccountMenu
+            context={isAdmin ? 'admin' : 'student'}
+            userName={isAdmin ? 'MoTA Administrator' : 'Aarav Bhil'}
+            role={isAdmin ? (role ?? 'MoTA Administration') : (role ?? 'Student')}
+            avatarInitials={isAdmin ? 'MA' : 'AB'}
+          />
         </div>
       </div>
     </header>

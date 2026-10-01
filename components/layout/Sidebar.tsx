@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useStudentTranslation } from '@/components/student/settings/StudentSettingsProvider';
 import {
   LayoutDashboard,
@@ -30,6 +30,7 @@ type NavigationItem = {
 type SidebarProps = {
   items?: NavigationItem[];
   title?: string;
+  context?: 'student' | 'admin';
 };
 
 const defaultItems: NavigationItem[] = [
@@ -86,9 +87,13 @@ const navigationIcons: Record<string, React.ElementType> = {
   'Audit Logs': FolderOpen,
 };
 
-export function Sidebar({ items = defaultItems, title = 'Student Portal' }: SidebarProps) {
+export function Sidebar({ items, title, context }: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const t = useStudentTranslation();
+  const isAdmin = context === 'admin' || (context === undefined && pathname.startsWith('/admin'));
+  const navItems = items ?? (isAdmin ? [] : defaultItems);
+  const portalTitle = title ?? (isAdmin ? 'Administration' : 'Student Portal');
 
   return (
     <aside className="relative z-20 flex w-full shrink-0 flex-col border-b border-[#DCE3EC] bg-white lg:fixed lg:left-0 lg:top-0 lg:h-screen lg:w-64 lg:border-b-0 lg:border-r">
@@ -109,7 +114,7 @@ export function Sidebar({ items = defaultItems, title = 'Student Portal' }: Side
             {t('Scholarship Portal')}
           </p>
 
-          <p className="text-[10px] text-slate-500">{t(title)}</p>
+          <p className="text-[10px] text-slate-500">{t(portalTitle)}</p>
         </div>
       </div>
 
@@ -120,13 +125,15 @@ export function Sidebar({ items = defaultItems, title = 'Student Portal' }: Side
         </p>
 
         <nav className="flex min-w-0 flex-wrap gap-1 lg:mt-3 lg:block lg:space-y-1">
-          {items.map((item) => {
+          {navItems.map((item) => {
             const Icon = item.icon ?? navigationIcons[item.label];
 
+            const isRootHref = item.href === '/student' || item.href === '/admin';
             const isActive =
-              pathname === item.href ||
-              (item.href !== '/student' &&
-                pathname.startsWith(item.href));
+              isRootHref
+                ? pathname === item.href
+                : pathname === item.href ||
+                  pathname.startsWith(item.href + '/');
 
             return (
               <Link
@@ -153,24 +160,24 @@ export function Sidebar({ items = defaultItems, title = 'Student Portal' }: Side
 
         <nav className="mt-3 hidden space-y-1 lg:block">
           <Link
-            href="/student/profile"
-            className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${pathname === '/student/profile' ? 'bg-blue-50 text-[#173F7A]' : 'text-slate-600 hover:bg-slate-50 hover:text-[#173F7A]'}`}
+            href={isAdmin ? '/admin/profile' : '/student/profile'}
+            className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${pathname === (isAdmin ? '/admin/profile' : '/student/profile') ? 'bg-blue-50 text-[#173F7A]' : 'text-slate-600 hover:bg-slate-50 hover:text-[#173F7A]'}`}
           >
             <UserRound size={18} />
             {t('Profile')}
           </Link>
 
           <Link
-            href="/student/settings"
-            className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${pathname === '/student/settings' ? 'bg-blue-50 text-[#173F7A]' : 'text-slate-600 hover:bg-slate-50 hover:text-[#173F7A]'}`}
+            href={isAdmin ? '/admin/settings' : '/student/settings'}
+            className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${pathname === (isAdmin ? '/admin/settings' : '/student/settings') ? 'bg-blue-50 text-[#173F7A]' : 'text-slate-600 hover:bg-slate-50 hover:text-[#173F7A]'}`}
           >
             <Settings size={18} />
             {t('Settings')}
           </Link>
 
           <Link
-            href="/student/help"
-            className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 hover:text-[#173F7A]"
+            href={isAdmin ? '/admin/help' : '/student/help'}
+            className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${pathname === (isAdmin ? '/admin/help' : '/student/help') ? 'bg-blue-50 text-[#173F7A]' : 'text-slate-600 hover:bg-slate-50 hover:text-[#173F7A]'}`}
           >
             <HelpCircle size={18} />
             {t('Help & Support')}
@@ -182,23 +189,25 @@ export function Sidebar({ items = defaultItems, title = 'Student Portal' }: Side
       <div className="hidden border-t border-[#DCE3EC] p-4 lg:block">
         <div className="flex items-center gap-3 rounded-xl bg-[#F6F8FB] p-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#173F7A] text-xs font-bold text-white">
-            ST
+            {isAdmin ? 'MA' : 'ST'}
           </div>
 
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-semibold text-[#172033]">
-              {t('Student Account')}
+              {isAdmin ? t('MoTA Administrator') : t('Student Account')}
             </p>
 
             <p className="truncate text-[10px] text-slate-500">
-              {t('Scheduled Tribe Student')}
+              {isAdmin ? t('Ministry of Tribal Affairs') : t('Scheduled Tribe Student')}
             </p>
           </div>
 
           <button
             type="button"
+            onClick={() => router.push('/')}
             className="text-slate-400 transition hover:text-red-500"
             title={t('Logout')}
+            aria-label={t('Logout')}
           >
             <LogOut size={16} />
           </button>
