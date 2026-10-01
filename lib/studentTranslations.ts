@@ -6,6 +6,10 @@ const phrases: Record<TranslationLanguage, Record<string, string>> = {
   Hindi: {
     'Student Portal': 'छात्र पोर्टल',
     'Scholarship Portal': 'छात्रवृत्ति पोर्टल',
+    Administration: 'प्रशासन',
+    'MoTA Administrator': 'जनजातीय कार्य मंत्रालय प्रशासक',
+    'MoTA Administration': 'जनजातीय कार्य मंत्रालय प्रशासन',
+    'Ministry of Tribal Affairs': 'जनजातीय कार्य मंत्रालय',
     Account: 'खाता',
     'Student Account': 'छात्र खाता',
     'Scheduled Tribe Student': 'अनुसूचित जनजाति का छात्र',
@@ -250,6 +254,10 @@ const phrases: Record<TranslationLanguage, Record<string, string>> = {
   Marathi: {
     'Student Portal': 'विद्यार्थी पोर्टल',
     'Scholarship Portal': 'शिष्यवृत्ती पोर्टल',
+    Administration: 'प्रशासन',
+    'MoTA Administrator': 'जनजातीय कार्य मंत्रालय प्रशासक',
+    'MoTA Administration': 'जनजातीय कार्य मंत्रालय प्रशासन',
+    'Ministry of Tribal Affairs': 'आदिवासी कार्य मंत्रालय',
     Account: 'खाते',
     'Student Account': 'विद्यार्थी खाते',
     'Scheduled Tribe Student': 'अनुसूचित जमाती विद्यार्थी',

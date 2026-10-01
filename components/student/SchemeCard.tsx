@@ -39,7 +39,7 @@ export function SchemeCard({ scheme }: SchemeCardProps) {
         <Link href={`/student/schemes/${scheme.id}`} className="inline-flex min-h-10 min-w-0 items-center justify-center rounded-lg border border-[#DCE3EC] px-3 py-2 text-xs font-semibold text-[#173F7A] transition hover:bg-[#F8FAFC] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563A8] focus-visible:ring-offset-2">
           View Details
         </Link>
-        <Link href="/student/recommended-schemes" className="inline-flex min-h-10 min-w-0 items-center justify-center rounded-lg bg-[#173F7A] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#123362]">
+        <Link href={`/student/schemes/${scheme.id}`} className="inline-flex min-h-10 min-w-0 items-center justify-center rounded-lg bg-[#173F7A] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#123362] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563A8] focus-visible:ring-offset-2">
           Check Eligibility
         </Link>
       </div>
