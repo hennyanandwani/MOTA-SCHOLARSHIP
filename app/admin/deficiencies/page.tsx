@@ -1,17 +1,23 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Download, RefreshCw } from 'lucide-react';
+import { Sidebar } from '@/components/layout/Sidebar';
+import { Topbar } from '@/components/layout/Topbar';
 import { DeficiencyStats } from '@/components/admin/deficiencies/DeficiencyStats';
 import { DeficiencyFilters, type DeficiencyFiltersState } from '@/components/admin/deficiencies/DeficiencyFilters';
 import { DeficiencyQueue } from '@/components/admin/deficiencies/DeficiencyQueue';
 import { DeficiencyCard } from '@/components/admin/deficiencies/DeficiencyCard';
 import type { DeficiencyRecord } from '@/lib/adminDeficiencyData';
-import { getInitialDeficiencyRecords, saveDeficiencyRecordsToLocalStorage } from '@/lib/adminDeficiencyData';
+import { getInitialDeficiencyRecords, reloadDeficiencyRecords, saveDeficiencyRecordsToLocalStorage } from '@/lib/adminDeficiencyData';
+import { adminNavigation } from '@/lib/navigation';
 
 export default function DeficienciesPage() {
   const [records, setRecords] = useState<DeficiencyRecord[]>(() => getInitialDeficiencyRecords());
   const [selectedRecord, setSelectedRecord] = useState<DeficiencyRecord | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshMessage, setRefreshMessage] = useState('');
+  const [refreshError, setRefreshError] = useState(false);
   const [filters, setFilters] = useState<DeficiencyFiltersState>({
     search: '',
     status: 'all',
@@ -23,6 +29,11 @@ export default function DeficienciesPage() {
   });
   const [currentPage, setCurrentPage] = useState(1);
   const recordsPerPage = 10;
+
+  useEffect(() => {
+    const searchValue = new URLSearchParams(window.location.search).get('search');
+    if (searchValue) setFilters((current) => ({ ...current, search: searchValue }));
+  }, []);
 
   const filteredRecords = useMemo(() => {
     let result = [...records];
@@ -55,6 +66,26 @@ export default function DeficienciesPage() {
 
   const totalPages = Math.ceil(filteredRecords.length / recordsPerPage);
 
+  const handleRefresh = () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    setRefreshMessage('');
+    window.setTimeout(() => {
+      try {
+        const result = reloadDeficiencyRecords();
+        setRecords(result.records);
+        setCurrentPage(1);
+        setRefreshMessage(result.error ?? 'Deficiency registry refreshed.');
+        setRefreshError(Boolean(result.error));
+      } catch {
+        setRefreshMessage('Unable to refresh the deficiency registry.');
+        setRefreshError(true);
+      } finally {
+        setRefreshing(false);
+      }
+    }, 350);
+  };
+
   const handleUpdate = (id: string, updates: Partial<DeficiencyRecord>) => {
     const updated = records.map((r) => (r.id === id ? { ...r, ...updates } : r));
     setRecords(updated);
@@ -82,8 +113,16 @@ export default function DeficienciesPage() {
 
 
   return (
-    <div className="min-h-screen bg-[#F6F8FB] p-4 sm:p-6">
-      <div className="mx-auto max-w-7xl space-y-6">
+    <div className="min-h-screen bg-[#F6F8FB]">
+      <Topbar
+        title="Deficiency Management"
+        subtitle="Identify application deficiencies, issue notices, and track correction and resubmission"
+        role="MoTA Administration"
+        context="admin"
+      />
+      <Sidebar items={adminNavigation} title="Administration" context="admin" />
+      <main className="min-w-0 p-4 sm:p-5 lg:ml-64 lg:p-8">
+      <div className="mx-auto max-w-[1600px] space-y-6">
         <div>
           <div className="mb-2 text-xs font-medium text-[#64748B]">Administration / Deficiencies</div>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -102,14 +141,19 @@ export default function DeficienciesPage() {
                 Export
               </button>
               <button
-                onClick={() => setRecords(getInitialDeficiencyRecords())}
-                className="flex items-center gap-2 rounded-lg border border-[#DCE3EC] bg-white px-4 py-2 text-sm font-semibold text-[#172033] transition-colors hover:bg-[#F6F8FB]"
+                type="button"
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="flex items-center gap-2 rounded-lg border border-[#DCE3EC] bg-white px-4 py-2 text-sm font-semibold text-[#172033] transition-colors hover:bg-[#F6F8FB] disabled:cursor-wait disabled:opacity-60"
               >
-                <RefreshCw size={16} />
-                Refresh
+                <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
+                {refreshing ? 'Refreshing…' : 'Refresh'}
               </button>
             </div>
           </div>
+          {refreshMessage && (
+            <p role={refreshError ? 'alert' : 'status'} className={`mt-2 text-xs ${refreshError ? 'text-[#A8323D]' : 'text-[#64748B]'}`}>{refreshMessage}</p>
+          )}
         </div>
 
         <DeficiencyStats records={records} />
@@ -199,7 +243,7 @@ export default function DeficienciesPage() {
           </div>
         </div>
       )}
+      </main>
     </div>
   );
 }
-

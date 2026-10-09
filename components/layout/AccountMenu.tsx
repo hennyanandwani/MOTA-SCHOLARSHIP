@@ -109,9 +109,9 @@ export function AccountMenu({
         <span aria-hidden="true" className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-[#173F7A]">
           {displayInitials}
         </span>
-        <span className="hidden text-left md:block">
+        <span className="hidden min-w-0 max-w-[240px] text-left md:block">
           <span className="block text-xs font-semibold text-[#172033]">{displayName}</span>
-          <span className="block text-[10px] text-slate-500">{t(displayRole)}</span>
+          <span className="block truncate text-[10px] text-slate-500">{t(displayRole)}</span>
         </span>
       </button>
 

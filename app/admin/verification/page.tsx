@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Download, RefreshCw } from "lucide-react";
 
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -44,6 +44,9 @@ export default function VerificationPage() {
 
   // Load records from localStorage
   useEffect(() => {
+    const searchValue = new URLSearchParams(window.location.search).get("searchQuery");
+    if (searchValue) setFilters((current) => ({ ...current, searchQuery: searchValue }));
+
     const stored = localStorage.getItem(
       LOCALSTORAGE_VERIFICATION_KEY
     );
@@ -194,13 +197,10 @@ export default function VerificationPage() {
     setInspectorOpen(true);
   };
 
-  const handleCloseInspector = () => {
+  const handleCloseInspector = useCallback(() => {
     setInspectorOpen(false);
-
-    setTimeout(() => {
-      setSelectedRecord(null);
-    }, 300);
-  };
+    setSelectedRecord(null);
+  }, []);
 
   const handleDecisionChange = (
     decision: VerificationRecord["reviewerDecision"],

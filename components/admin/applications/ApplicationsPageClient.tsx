@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { Download, ChevronRight, CheckCircle2 } from 'lucide-react';
 import { ApplicationStats } from './ApplicationStats';
@@ -39,6 +39,11 @@ export function ApplicationsPageClient({
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [selectedApp, setSelectedApp] = useState<AdminApplicationRecord | null>(null);
   const [exportNotice, setExportNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    const searchValue = new URLSearchParams(window.location.search).get('searchQuery');
+    if (searchValue) setFilters((current) => ({ ...current, searchQuery: searchValue }));
+  }, []);
 
   // Extract unique schemes & states for filter options
   const schemeOptions = useMemo(() => {

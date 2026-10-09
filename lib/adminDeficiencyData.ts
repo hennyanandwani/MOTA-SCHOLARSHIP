@@ -64,18 +64,58 @@ export const INITIAL_DEFICIENCY_RECORDS: DeficiencyRecord[] = [
 
 export const LOCALSTORAGE_DEFICIENCY_KEY = 'mota_admin_deficiencies_state';
 
+function isDeficiencyRecord(value: unknown): value is DeficiencyRecord {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Partial<DeficiencyRecord>;
+  return typeof record.id === 'string' &&
+    typeof record.applicationId === 'string' &&
+    typeof record.applicantName === 'string' &&
+    typeof record.scheme === 'string' &&
+    typeof record.state === 'string' &&
+    typeof record.deficiency === 'string' &&
+    typeof record.deficiencyType === 'string' &&
+    typeof record.severity === 'string' &&
+    typeof record.description === 'string' &&
+    typeof record.raisedDate === 'string' &&
+    typeof record.cureDeadline === 'string' &&
+    typeof record.status === 'string' &&
+    Array.isArray(record.activities);
+}
+
 export function getInitialDeficiencyRecords(): DeficiencyRecord[] {
   if (typeof window === 'undefined') return INITIAL_DEFICIENCY_RECORDS;
   try {
     const saved = localStorage.getItem(LOCALSTORAGE_DEFICIENCY_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0 && parsed.every(isDeficiencyRecord)) return parsed;
     }
   } catch (e) {
     console.warn('Unable to load deficiency state', e);
   }
   return INITIAL_DEFICIENCY_RECORDS;
+}
+
+export function reloadDeficiencyRecords(): { records: DeficiencyRecord[]; error?: string } {
+  if (typeof window === 'undefined') return { records: INITIAL_DEFICIENCY_RECORDS };
+  try {
+    const saved = window.localStorage.getItem(LOCALSTORAGE_DEFICIENCY_KEY);
+    if (!saved) return { records: INITIAL_DEFICIENCY_RECORDS };
+    const parsed: unknown = JSON.parse(saved);
+    if (Array.isArray(parsed) && parsed.length > 0 && parsed.every(isDeficiencyRecord)) {
+      return { records: parsed };
+    }
+    if (Array.isArray(parsed)) return { records: INITIAL_DEFICIENCY_RECORDS };
+    return {
+      records: INITIAL_DEFICIENCY_RECORDS,
+      error: 'Saved deficiency data is invalid; illustrative defaults are shown.',
+    };
+  } catch {
+    return {
+      records: INITIAL_DEFICIENCY_RECORDS,
+      error: 'Saved deficiency data could not be read; illustrative defaults are shown.',
+    };
+  }
 }
 
 export function saveDeficiencyRecordsToLocalStorage(records: DeficiencyRecord[]): void {
