@@ -98,7 +98,11 @@ export function Sidebar({ items, title, context }: SidebarProps) {
   return (
     <aside className="relative z-20 flex w-full shrink-0 flex-col border-b border-[#DCE3EC] bg-white lg:fixed lg:left-0 lg:top-0 lg:h-screen lg:w-64 lg:border-b-0 lg:border-r">
       {/* Brand */}
-      <div className="hidden h-20 items-center gap-3 border-b border-[#DCE3EC] px-6 lg:flex">
+      <Link
+        href={isAdmin ? '/admin' : '/student'}
+        aria-label={`Go to ${isAdmin ? 'Administration' : 'Student Portal'} dashboard`}
+        className="hidden h-20 items-center gap-3 border-b border-[#DCE3EC] px-6 lg:flex"
+      >
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#173F7A] text-xs font-bold text-white">
           <Image
             src="/images/india-emblem.svg"
@@ -116,7 +120,7 @@ export function Sidebar({ items, title, context }: SidebarProps) {
 
           <p className="text-[10px] text-slate-500">{t(portalTitle)}</p>
         </div>
-      </div>
+      </Link>
 
       {/* Navigation */}
       <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-2 lg:px-4 lg:py-6">

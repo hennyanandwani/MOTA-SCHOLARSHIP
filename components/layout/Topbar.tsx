@@ -1,9 +1,19 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Bell, Search } from 'lucide-react';
 import { AccountMenu } from '@/components/layout/AccountMenu';
+import { AdminTopbarActions } from '@/components/layout/AdminTopbarActions';
 import { useStudentTranslation } from '@/components/student/settings/StudentSettingsProvider';
+import {
+  ADMIN_PROFILE_STORAGE_KEY,
+  ADMIN_PROFILE_UPDATED_EVENT,
+  getAdminProfileInitials,
+  INITIAL_ADMIN_PROFILE,
+  normalizeAdminProfile,
+  type AdminProfile,
+} from '@/lib/adminProfileData';
 
 type TopbarProps = {
   title?: string;
@@ -23,6 +33,41 @@ export function Topbar({
   const isAdmin = context === 'admin' || (context === undefined && pathname.startsWith('/admin'));
   const pageTitle = title ?? (isAdmin ? 'Admin Dashboard' : role ?? 'Dashboard');
   const pageSubtitle = subtitle ?? (isAdmin ? 'Manage and monitor scholarship and fellowship operations' : 'Manage your scholarship and fellowship applications');
+  const [adminProfile, setAdminProfile] = useState<AdminProfile>(INITIAL_ADMIN_PROFILE);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    const applyProfile = (value: unknown) => {
+      setAdminProfile(normalizeAdminProfile(value) ?? INITIAL_ADMIN_PROFILE);
+    };
+    const readStoredProfile = () => {
+      try {
+        const raw = window.localStorage.getItem(ADMIN_PROFILE_STORAGE_KEY);
+        applyProfile(raw ? JSON.parse(raw) as unknown : null);
+      } catch {
+        applyProfile(null);
+      }
+    };
+    const onProfileUpdated = (event: Event) => {
+      applyProfile((event as CustomEvent<unknown>).detail);
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== ADMIN_PROFILE_STORAGE_KEY) return;
+      try {
+        applyProfile(event.newValue ? JSON.parse(event.newValue) as unknown : null);
+      } catch {
+        applyProfile(null);
+      }
+    };
+
+    readStoredProfile();
+    window.addEventListener(ADMIN_PROFILE_UPDATED_EVENT, onProfileUpdated);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener(ADMIN_PROFILE_UPDATED_EVENT, onProfileUpdated);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, [isAdmin]);
 
   return (
     <header className="sticky top-0 z-30 border-b border-[#DCE3EC] bg-white lg:ml-64">
@@ -42,33 +87,34 @@ export function Topbar({
 
         {/* Right */}
         <div className="flex items-center gap-2 sm:gap-4">
-          <button
-            type="button"
-            className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-[#173F7A]"
-            title={t('Search')}
-            aria-label={t('Search')}
-          >
-            <Search size={19} />
-          </button>
-
-          <button
-            type="button"
-            className="relative rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-[#173F7A]"
-            title="Notifications"
-            aria-label={t('Notifications, 5 unread')}
-          >
-            <Bell size={19} />
-
-            <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-[#C2414B]" />
-          </button>
+          {isAdmin ? <AdminTopbarActions /> : (
+            <>
+              <button
+                type="button"
+                className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-[#173F7A]"
+                title={t('Search')}
+                aria-label={t('Search')}
+              >
+                <Search size={19} />
+              </button>
+              <button
+                type="button"
+                className="relative rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-[#173F7A]"
+                title="Notifications"
+                aria-label={t('Notifications')}
+              >
+                <Bell size={19} />
+              </button>
+            </>
+          )}
 
           <div className="hidden h-7 w-px bg-slate-200 sm:block" />
 
           <AccountMenu
             context={isAdmin ? 'admin' : 'student'}
-            userName={isAdmin ? 'MoTA Administrator' : 'Aarav Bhil'}
-            role={isAdmin ? (role ?? 'MoTA Administration') : (role ?? 'Student')}
-            avatarInitials={isAdmin ? 'MA' : 'AB'}
+            userName={isAdmin ? adminProfile.name : 'Aarav Bhil'}
+            role={isAdmin ? `${adminProfile.designation} · ${adminProfile.department}` : (role ?? 'Student')}
+            avatarInitials={isAdmin ? getAdminProfileInitials(adminProfile.name) : 'AB'}
           />
         </div>
       </div>

@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, ZoomIn, ZoomOut, RotateCcw, Download, CheckCircle2, AlertCircle, XCircle, Play } from 'lucide-react';
 import { VerificationStatusBadge } from './VerificationStatusBadge';
 import type { VerificationRecord } from '@/lib/adminVerificationData';
@@ -18,6 +19,8 @@ export function VerificationInspector({
   onDecisionChange,
   isOpen,
 }: VerificationInspectorProps) {
+  const drawerRef = useRef<HTMLElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const [zoom, setZoom] = useState(100);
   const [decision, setDecision] = useState<VerificationRecord['reviewerDecision']>(record?.reviewerDecision);
   const [note, setNote] = useState(record?.reviewerNote || '');
@@ -25,7 +28,56 @@ export function VerificationInspector({
   const [sourceCheckLoading, setSourceCheckLoading] = useState(false);
   const [sourceCheckResult, setSourceCheckResult] = useState(record?.sourceCheck.status);
 
-  if (!record) return null;
+  useEffect(() => {
+    if (!isOpen || !record) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const previousFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    document.body.style.overflow = 'hidden';
+    closeButtonRef.current?.focus();
+
+    const handleDialogKeys = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = drawerRef.current?.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable?.length) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener('keydown', handleDialogKeys);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleDialogKeys);
+      previousFocus?.focus();
+    };
+  }, [isOpen, onClose, record?.id]);
+
+  useEffect(() => {
+    setDecision(record?.reviewerDecision);
+    setNote(record?.reviewerNote || '');
+    setReason(record?.rejectionReason || '');
+    setSourceCheckResult(record?.sourceCheck.status);
+  }, [record?.id, record?.reviewerDecision, record?.reviewerNote, record?.rejectionReason, record?.sourceCheck.status]);
+
+  if (!record || !isOpen || typeof document === 'undefined') return null;
 
   const handleZoomIn = () => setZoom(z => Math.min(z + 10, 200));
   const handleZoomOut = () => setZoom(z => Math.max(z - 10, 50));
@@ -49,27 +101,24 @@ export function VerificationInspector({
     setSourceCheckLoading(false);
   };
 
-  const drawerClasses = isOpen
-    ? 'fixed inset-0 z-50 lg:static lg:z-auto overflow-y-auto'
-    : 'hidden lg:block';
-
-  return (
-    <div className={drawerClasses}>
-      {isOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 lg:hidden"
-          onClick={onClose}
-          aria-hidden="true"
-        />
-      )}
-
-      <div className="relative lg:absolute lg:right-0 lg:top-0 lg:h-full lg:w-full lg:max-w-2xl lg:border-l lg:border-[#DCE3EC] lg:bg-white bg-white">
-        <div className="sticky top-0 z-40 flex items-start justify-between gap-3 border-b border-[#DCE3EC] bg-white px-4 py-4 lg:px-6 lg:py-5">
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex justify-end" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <div className="absolute inset-0 bg-black/45" onMouseDown={onClose} aria-hidden="true" />
+      <section
+        ref={drawerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="verification-inspector-title"
+        className="relative flex h-full w-full max-w-2xl flex-col border-l border-[#DCE3EC] bg-white shadow-xl"
+      >
+        <div className="sticky top-0 z-10 flex shrink-0 items-start justify-between gap-3 border-b border-[#DCE3EC] bg-white px-4 py-4 lg:px-6 lg:py-5">
           <div className="min-w-0 flex-1">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-[#64748B]">
               {record.applicationId}
             </div>
-            <h2 className="mt-1 text-base font-bold text-[#172033] lg:text-lg">
+            <h2 id="verification-inspector-title" className="mt-1 text-base font-bold text-[#172033] lg:text-lg">
               {record.applicantName}
             </h2>
             <p className="mt-1 text-xs text-[#64748B] line-clamp-1">{record.documentName}</p>
@@ -77,17 +126,18 @@ export function VerificationInspector({
           <div className="flex items-center gap-2 shrink-0">
             <VerificationStatusBadge status={record.verificationStatus} />
             <button
+              ref={closeButtonRef}
               type="button"
               onClick={onClose}
-              className="inline-flex items-center justify-center rounded-lg p-2 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#2563A8] lg:hidden"
-              aria-label="Close"
+              className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-lg text-[#475569] hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563A8]"
+              aria-label="Close verification review"
             >
               <X size={20} />
             </button>
           </div>
         </div>
 
-        <div className="space-y-6 overflow-y-auto px-4 py-6 lg:px-6 lg:max-h-[calc(100vh-120px)]">
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-4 py-6 lg:px-6">
           <section>
             <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-[#475569]">
               Document Preview
@@ -438,7 +488,8 @@ export function VerificationInspector({
             </div>
           </section>
         </div>
-      </div>
-    </div>
+      </section>
+    </div>,
+    document.body,
   );
 }
