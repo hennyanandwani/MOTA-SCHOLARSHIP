@@ -1,0 +1,79 @@
+/
+├── app/
+│   ├── (public)/page.tsx
+│   ├── layout.tsx
+│   ├── globals.css
+│   ├── not-found.tsx
+│   ├── admin/
+│   │   ├── page.tsx
+│   │   ├── applications/page.tsx
+│   │   ├── analytics/page.tsx
+│   │   ├── audit/page.tsx
+│   │   ├── communications/page.tsx
+│   │   ├── deficiencies/page.tsx
+│   │   ├── help/page.tsx
+│   │   ├── profile/page.tsx
+│   │   ├── rules/page.tsx
+│   │   ├── schemes/page.tsx
+│   │   ├── screening/page.tsx
+│   │   ├── selection/page.tsx
+│   │   ├── settings/page.tsx
+│   │   └── verification/page.tsx
+│   └── student/
+│       ├── layout.tsx
+│       ├── page.tsx
+│       ├── action-required/page.tsx
+│       ├── all-schemes/page.tsx
+│       ├── applications/page.tsx
+│       ├── applications/[applicationId]/page.tsx
+│       ├── documents/page.tsx
+│       ├── help/page.tsx
+│       ├── notifications/page.tsx
+│       ├── profile/page.tsx
+│       ├── recommended-schemes/page.tsx
+│       ├── settings/page.tsx
+│       └── schemes/[schemeId]/
+│           ├── page.tsx
+│           ├── eligibility/page.tsx
+│           └── apply/
+│               ├── page.tsx
+│               ├── documents/page.tsx
+│               └── review/page.tsx
+├── components/
+│   ├── admin/
+│   │   ├── applications/
+│   │   ├── analytics/
+│   │   ├── audit/
+│   │   ├── communications/
+│   │   ├── deficiencies/
+│   │   ├── help/
+│   │   ├── profile/
+│   │   ├── rules/
+│   │   ├── schemes/
+│   │   ├── screening/
+│   │   ├── selection/
+│   │   ├── settings/
+│   │   └── verification/
+│   ├── layout/
+│   └── student/
+│       ├── application/
+│       ├── application-status/
+│       ├── applications/
+│       ├── action-required/
+│       ├── documents/
+│       ├── help/
+│       ├── notifications/
+│       ├── profile/
+│       ├── review/
+│       └── settings/
+├── lib/
+├── public/images/india-emblem.svg
+├── next.config.ts
+├── postcss.config.mjs
+├── tsconfig.json
+├── package.json
+├── package-lock.json
+├── next-env.d.ts
+├── AGENTS.md
+├── UI-BUILD-GUIDE.md
+└── create_files.mjs
