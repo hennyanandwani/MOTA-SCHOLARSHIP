@@ -60,7 +60,7 @@ function detectFileType(bytes: Uint8Array): string | null {
 }
 
 function getStorageClient() {
-  const url = process.env.SUPABASE_URL;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const secret = process.env.SUPABASE_SECRET_KEY;
 
   if (!url || !secret) {

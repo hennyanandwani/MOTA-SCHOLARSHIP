@@ -29,8 +29,8 @@ export async function GET(_request: Request, { params }: RouteContext) {
       return NextResponse.json({ error: 'Document not found.' }, { status: 404 });
     }
 
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseSecret = process.env.SUPABASE_SECRET_KEY;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseSecret = process.env.NEXT_PUBLIC_SUPABASE_SECRET_KEY;
     if (!supabaseUrl || !supabaseSecret) {
       return NextResponse.json({ error: 'Server storage configuration is missing.' }, { status: 500 });
     }
