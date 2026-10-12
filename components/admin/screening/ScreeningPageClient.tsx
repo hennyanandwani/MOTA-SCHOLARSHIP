@@ -71,6 +71,7 @@ const priorityStyles = {
   High: 'bg-[#FDF0F0] text-[#A52C37]',
   Medium: 'bg-[#FFF8E8] text-[#8A5B12]',
   Low: 'bg-[#EAF7F1] text-[#126044]',
+  'Not assessed': 'bg-slate-100 text-slate-600',
 } as const;
 
 function resultIcon(result: CriterionResult) {
@@ -245,7 +246,7 @@ export function ScreeningPageClient({ applications }: ScreeningPageClientProps) 
 
     return filtered.sort((first, second) => {
       if (sortBy === 'priority') {
-        const order = { High: 0, Medium: 1, Low: 2 };
+        const order = { High: 0, Medium: 1, Low: 2, 'Not assessed': 3 };
         return order[first.priority] - order[second.priority];
       }
       if (sortBy === 'oldest') {
@@ -439,6 +440,7 @@ export function ScreeningPageClient({ applications }: ScreeningPageClientProps) 
             <option value="High">High priority</option>
             <option value="Medium">Medium priority</option>
             <option value="Low">Low priority</option>
+            <option value="Not assessed">Not assessed</option>
           </SelectFilter>
           <SelectFilter id="state-filter" label="Filter by state or location" value={stateFilter} onChange={setStateFilter}>
             <option value="all">All locations</option>

@@ -14,7 +14,7 @@ export type OfficialReviewStatus =
   | 'Clarification Requested'
   | 'Exception Review'
   | 'Referred for Verification';
-export type ScreeningPriority = 'High' | 'Medium' | 'Low';
+export type ScreeningPriority = 'High' | 'Medium' | 'Low' | 'Not assessed';
 
 export type EligibilityCriterion = {
   id: string;
@@ -98,13 +98,17 @@ function evaluateCriteria(application: AdminApplicationRecord): EligibilityCrite
     };
   })();
   const incomeLimit = application.schemeId === 'national-overseas-st' ? 600000 : 250000;
-  const incomeNearLimit = application.familyIncome >= incomeLimit * 0.95;
+  const familyIncome = application.familyIncome;
+  const incomeNearLimit =
+    familyIncome !== null && familyIncome >= incomeLimit * 0.95;
   const incomeResult: CriterionResult =
-    application.familyIncome > incomeLimit
-      ? 'Failed'
-      : incomeNearLimit
-        ? 'Needs Review'
-        : 'Matched';
+    familyIncome === null
+      ? 'Missing'
+      : familyIncome > incomeLimit
+        ? 'Failed'
+        : incomeNearLimit
+          ? 'Needs Review'
+          : 'Matched';
   const documentsResult: CriterionResult =
     (application.pendingDocsCount ?? 0) > 0
       ? 'Missing'
@@ -135,7 +139,9 @@ function evaluateCriteria(application: AdminApplicationRecord): EligibilityCrite
       id: 'income',
       name: 'Family income',
       requirement: `At or below ₹${incomeLimit.toLocaleString('en-IN')} (illustrative demo ceiling)`,
-      applicantValue: `₹${application.familyIncome.toLocaleString('en-IN')} per year`,
+      applicantValue: familyIncome === null
+        ? 'Not provided'
+        : `₹${familyIncome.toLocaleString('en-IN')} per year`,
       result: incomeResult,
       evidence: 'Income value in application registry; verify against supporting certificate',
     },
@@ -221,7 +227,11 @@ export function createInitialScreeningCases(
 
     return {
       application,
-      priority: application.riskScore,
+      priority: application.riskScore === 'High' ||
+        application.riskScore === 'Medium' ||
+        application.riskScore === 'Low'
+        ? application.riskScore
+        : 'Not assessed',
       criteria,
       screeningStatus: initialScreeningStatus(criteria),
       officialReviewStatus: 'Pending',
