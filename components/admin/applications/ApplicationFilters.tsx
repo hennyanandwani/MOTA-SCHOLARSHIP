@@ -1,11 +1,5 @@
 import React from 'react';
 import { Search, X, RotateCcw, Filter } from 'lucide-react';
-import type {
-  ApplicationStatus,
-  WorkflowStage,
-  VerificationStatus,
-  DeficiencyStatus,
-} from '@/lib/adminData';
 
 export type FilterState = {
   searchQuery: string;
@@ -112,13 +106,13 @@ export function ApplicationFilters({
             className="w-full rounded-md border border-[#DCE3EC] bg-white px-2.5 py-1.5 text-xs text-[#172033] focus:border-[#2563A8] focus:outline-none focus:ring-1 focus:ring-[#2563A8]"
           >
             <option value="all">All Statuses</option>
-            <option value="Under Review">Under Review</option>
-            <option value="Action Required">Action Required</option>
-            <option value="Verified">Verified</option>
-            <option value="Screened">Screened</option>
-            <option value="Selected">Selected</option>
-            <option value="Sanctioned">Sanctioned</option>
-            <option value="Rejected">Rejected</option>
+            <option value="DRAFT">Draft</option>
+            <option value="SUBMITTED">Submitted</option>
+            <option value="PENDING_VERIFICATION">Pending verification</option>
+            <option value="FLAGGED_FOR_MANUAL_REVIEW">Flagged for manual review</option>
+            <option value="RECOMMENDED_FOR_APPROVAL">Recommended for approval</option>
+            <option value="APPROVED_BY_OFFICER">Approved by officer</option>
+            <option value="REJECTED_BY_OFFICER">Rejected by officer</option>
           </select>
         </div>
 
@@ -134,12 +128,13 @@ export function ApplicationFilters({
             className="w-full rounded-md border border-[#DCE3EC] bg-white px-2.5 py-1.5 text-xs text-[#172033] focus:border-[#2563A8] focus:outline-none focus:ring-1 focus:ring-[#2563A8]"
           >
             <option value="all">All Stages</option>
-            <option value="Submitted">1. Submitted</option>
-            <option value="Verification">2. Verification</option>
-            <option value="Scrutiny">3. Scrutiny</option>
-            <option value="Screening">4. Screening</option>
-            <option value="Selection">5. Selection</option>
-            <option value="Disbursement">6. Disbursement</option>
+            <option value="Draft">Draft</option>
+            <option value="Awaiting verification">Awaiting verification</option>
+            <option value="Verification in progress">Verification in progress</option>
+            <option value="Manual review">Manual review</option>
+            <option value="Awaiting officer decision">Awaiting officer decision</option>
+            <option value="Approved">Approved</option>
+            <option value="Rejected">Rejected</option>
           </select>
         </div>
 
@@ -155,6 +150,7 @@ export function ApplicationFilters({
             className="w-full rounded-md border border-[#DCE3EC] bg-white px-2.5 py-1.5 text-xs text-[#172033] focus:border-[#2563A8] focus:outline-none focus:ring-1 focus:ring-[#2563A8]"
           >
             <option value="all">All Verification</option>
+            <option value="Not run">Not run</option>
             <option value="Pending">Pending</option>
             <option value="In Progress">In Progress</option>
             <option value="Verified">Verified</option>
@@ -180,6 +176,7 @@ export function ApplicationFilters({
             <option value="Student Resubmitted">Student Resubmitted</option>
             <option value="Resolved">Resolved</option>
             <option value="Escalated">Escalated</option>
+            <option value="Not tracked">Not tracked</option>
           </select>
         </div>
 

@@ -3,39 +3,49 @@
 import { AlertCircle, Bell, Clock3, FileText } from 'lucide-react';
 import { useStudentTranslation } from '@/components/student/settings/StudentSettingsProvider';
 
-const stats = [
-  {
-    label: 'Applications',
-    value: '03',
-    detail: 'Total submitted',
-    Icon: FileText,
-    iconClass: 'bg-blue-50 text-[#2563A8]',
-  },
-  {
-    label: 'Under Review',
-    value: '01',
-    detail: 'Currently being reviewed',
-    Icon: Clock3,
-    iconClass: 'bg-sky-50 text-sky-700',
-  },
-  {
-    label: 'Action Required',
-    value: '02',
-    detail: 'Need your attention',
-    Icon: AlertCircle,
-    iconClass: 'bg-amber-50 text-[#B7791F]',
-  },
-  {
-    label: 'Notifications',
-    value: '05',
-    detail: 'Unread updates',
-    Icon: Bell,
-    iconClass: 'bg-emerald-50 text-[#16805B]',
-  },
-];
+type DashboardStatsProps = {
+  applications: number;
+  underReview: number;
+  actionRequired: number;
+};
 
-export function DashboardStats() {
+export function DashboardStats({
+  applications,
+  underReview,
+  actionRequired,
+}: DashboardStatsProps) {
   const t = useStudentTranslation();
+  const stats = [
+    {
+      label: 'Applications',
+      value: applications.toString().padStart(2, '0'),
+      detail: 'Your saved and submitted applications',
+      Icon: FileText,
+      iconClass: 'bg-blue-50 text-[#2563A8]',
+    },
+    {
+      label: 'Under Review',
+      value: underReview.toString().padStart(2, '0'),
+      detail: 'In verification or manual review',
+      Icon: Clock3,
+      iconClass: 'bg-sky-50 text-sky-700',
+    },
+    {
+      label: 'Action Required',
+      value: actionRequired.toString().padStart(2, '0'),
+      detail: 'Applications with flagged documents',
+      Icon: AlertCircle,
+      iconClass: 'bg-amber-50 text-[#B7791F]',
+    },
+    {
+      label: 'Notifications',
+      value: '—',
+      detail: 'No notification records are available',
+      Icon: Bell,
+      iconClass: 'bg-emerald-50 text-[#16805B]',
+    },
+  ];
+
   return (
     <section id="dashboard-stats" aria-label={t('Application summary')} className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       {stats.map(({ label, value, detail, Icon, iconClass }) => (

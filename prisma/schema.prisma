@@ -1,4 +1,3 @@
-
 generator client {
   provider = "prisma-client"
   output   = "../lib/generated/prisma"
@@ -23,10 +22,19 @@ enum ApplicationStatus {
   REJECTED_BY_OFFICER
 }
 
+enum SchemeType {
+  SCHOLARSHIP
+  FELLOWSHIP
+}
+
 enum DocumentType {
   CASTE_CERTIFICATE
   INCOME_CERTIFICATE
   MARKSHEET
+  IDENTITY_PROOF
+  ADMISSION_PROOF
+  BANK_PROOF
+  PHOTOGRAPH
   OTHER
 }
 
@@ -36,7 +44,6 @@ enum VerificationStatus {
   FLAGGED
   REJECTED
 }
-
 
 model User {
   id             String   @id @default(cuid())
@@ -51,7 +58,6 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
-
 
 model Student {
   id                 String   @id @default(cuid())
@@ -71,10 +77,11 @@ model Student {
 }
 
 model ScholarshipScheme {
-  id           String   @id @default(cuid())
-  name         String
-  description  String?
-  isActive     Boolean  @default(true)
+  id          String     @id @default(cuid())
+  name        String
+  description String?
+  type        SchemeType @default(SCHOLARSHIP)
+  isActive    Boolean    @default(true)
 
   applications ScholarshipApplication[]
 
@@ -83,8 +90,8 @@ model ScholarshipScheme {
 }
 
 model ScholarshipApplication {
-  id                String            @id @default(cuid())
-  applicationNumber String            @unique
+  id                String @id @default(cuid())
+  applicationNumber String @unique
 
   studentId String
   student   Student @relation(fields: [studentId], references: [id])
@@ -92,48 +99,63 @@ model ScholarshipApplication {
   schemeId String
   scheme   ScholarshipScheme @relation(fields: [schemeId], references: [id])
 
+  academicYear String            @default("2026-2027")
   status       ApplicationStatus @default(DRAFT)
-  aiConfidence Decimal?          @db.Decimal(5, 2)
+
+  // Stores the application's personal, academic, family and bank form fields.
+  // The server must validate and sanitize this JSON before saving.
+  formData    Json?
+  currentStep Int   @default(1)
+
+  informationConfirmed     Boolean @default(false)
+  verificationAcknowledged Boolean @default(false)
+  eligibilityNotGuaranteed Boolean @default(false)
+  termsAccepted            Boolean @default(false)
+  accountNumberConfirmed   Boolean @default(false)
+
+  aiConfidence Decimal? @db.Decimal(5, 2)
   aiRemarks    String?
 
   documents ApplicationDocument[]
   decisions ApplicationDecision[]
 
   submittedAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([studentId])
   @@index([status])
   @@index([schemeId])
+  @@index([studentId, schemeId])
 }
 
 model ApplicationDocument {
-  id            String @id @default(cuid())
+  id            String                 @id @default(cuid())
   applicationId String
   application   ScholarshipApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
-  type        DocumentType
-  storagePath String @unique
+  type         DocumentType
+  storagePath  String       @unique
   originalName String
-  mimeType    String
-  sizeBytes   Int
+  mimeType     String
+  sizeBytes    Int
 
-  verificationStatus   VerificationStatus @default(PENDING)
+  verificationStatus  VerificationStatus @default(PENDING)
   verificationRemarks String?
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([applicationId])
 }
 
 model ApplicationDecision {
-  id            String @id @default(cuid())
+  id            String                 @id @default(cuid())
   applicationId String
   application   ScholarshipApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   officerId String
-  officer   User @relation("OfficerDecisions", fields: [officerId], references: [id])
+  officer   User   @relation("OfficerDecisions", fields: [officerId], references: [id])
 
   status         ApplicationStatus
   officerRemarks String?

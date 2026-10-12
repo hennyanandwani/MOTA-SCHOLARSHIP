@@ -20,6 +20,8 @@ type TopbarProps = {
   subtitle?: string;
   role?: string;
   context?: 'student' | 'admin';
+  userName?: string;
+  avatarInitials?: string;
 };
 
 export function Topbar({
@@ -27,6 +29,8 @@ export function Topbar({
   subtitle,
   role,
   context,
+  userName,
+  avatarInitials,
 }: TopbarProps) {
   const pathname = usePathname();
   const t = useStudentTranslation();
@@ -112,9 +116,9 @@ export function Topbar({
 
           <AccountMenu
             context={isAdmin ? 'admin' : 'student'}
-            userName={isAdmin ? adminProfile.name : 'Aarav Bhil'}
+            userName={isAdmin ? adminProfile.name : userName}
             role={isAdmin ? `${adminProfile.designation} · ${adminProfile.department}` : (role ?? 'Student')}
-            avatarInitials={isAdmin ? getAdminProfileInitials(adminProfile.name) : 'AB'}
+            avatarInitials={isAdmin ? getAdminProfileInitials(adminProfile.name) : avatarInitials}
           />
         </div>
       </div>

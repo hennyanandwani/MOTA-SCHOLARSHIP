@@ -39,6 +39,7 @@ export function ApplicationsPageClient({
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [selectedApp, setSelectedApp] = useState<AdminApplicationRecord | null>(null);
   const [exportNotice, setExportNotice] = useState<string | null>(null);
+  const closeInspector = useCallback(() => setSelectedApp(null), []);
 
   useEffect(() => {
     const searchValue = new URLSearchParams(window.location.search).get('searchQuery');
@@ -275,7 +276,7 @@ export function ApplicationsPageClient({
       {/* Application Inspector Drawer */}
       <ApplicationInspector
         application={selectedApp}
-        onClose={() => setSelectedApp(null)}
+        onClose={closeInspector}
       />
     </div>
   );

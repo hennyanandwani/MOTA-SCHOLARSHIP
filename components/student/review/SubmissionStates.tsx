@@ -50,9 +50,11 @@ export function SubmitConfirmationModal({
 }
 
 export function SubmissionSuccess({
+  applicationId,
   submittedOn,
   schemeName,
 }: {
+  applicationId: string;
   submittedOn: string;
   schemeName: string;
 }) {
@@ -69,13 +71,13 @@ export function SubmissionSuccess({
       <section className="rounded-xl border border-emerald-200 bg-white p-5 shadow-[0_1px_3px_rgba(23,32,51,0.04)] sm:p-8">
         <div className="mx-auto flex max-w-2xl flex-col items-center text-center">
           <span className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-[#16805B]"><CheckCircle2 size={30} aria-hidden="true" /></span>
-          <p className="mt-4 text-[11px] font-semibold uppercase tracking-wide text-[#16805B]">Submission recorded in this demo</p>
+          <p className="mt-4 text-[11px] font-semibold uppercase tracking-wide text-[#16805B]">Submission recorded</p>
           <h1 className="mt-1 text-2xl font-bold text-[#172033]">Application Submitted Successfully</h1>
           <p className="mt-2 text-sm leading-6 text-[#64748B]">Your application has been submitted and is now awaiting official verification and scrutiny.</p>
         </div>
 
         <dl className="mx-auto mt-6 grid max-w-2xl gap-4 border-y border-[#EEF1F5] py-4 sm:grid-cols-2">
-          <div className="min-w-0"><dt className="text-[11px] text-[#64748B]">Application ID</dt><dd className="mt-1 break-all text-sm font-semibold text-[#172033]">MOTA-2026-XXXXXX</dd></div>
+          <div className="min-w-0"><dt className="text-[11px] text-[#64748B]">Application ID</dt><dd className="mt-1 break-all text-sm font-semibold text-[#172033]">{applicationId}</dd></div>
           <div className="min-w-0"><dt className="text-[11px] text-[#64748B]">Scheme</dt><dd className="mt-1 break-words text-sm font-semibold text-[#172033]">{schemeName}</dd></div>
           <div><dt className="text-[11px] text-[#64748B]">Submitted on</dt><dd className="mt-1 text-sm font-semibold text-[#172033]">{submittedOn}</dd></div>
           <div><dt className="text-[11px] text-[#64748B]">Status</dt><dd className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-[#1D5796]"><Clock3 size={13} aria-hidden="true" />Submitted</dd></div>

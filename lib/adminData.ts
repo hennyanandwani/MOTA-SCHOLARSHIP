@@ -13,21 +13,30 @@ export type ApplicationStatus =
   | 'Screened'
   | 'Selected'
   | 'Rejected'
-  | 'Sanctioned';
+  | 'Sanctioned'
+  | 'DRAFT'
+  | 'SUBMITTED'
+  | 'PENDING_VERIFICATION'
+  | 'FLAGGED_FOR_MANUAL_REVIEW'
+  | 'RECOMMENDED_FOR_APPROVAL'
+  | 'APPROVED_BY_OFFICER'
+  | 'REJECTED_BY_OFFICER';
 
 export type VerificationStatus =
   | 'Pending'
   | 'In Progress'
   | 'Verified'
   | 'Discrepancy Flagged'
-  | 'Failed';
+  | 'Failed'
+  | 'Not run';
 
 export type DeficiencyStatus =
   | 'None'
   | 'Notice Issued'
   | 'Student Resubmitted'
   | 'Resolved'
-  | 'Escalated';
+  | 'Escalated'
+  | 'Not tracked';
 
 export type HeatmapIntensity = 'Low' | 'Medium' | 'High' | 'Very High';
 
@@ -47,7 +56,7 @@ export type AdminApplicationRecord = {
   applicationId: string;
   applicantName: string;
   category: 'ST';
-  gender: 'Male' | 'Female' | 'Other';
+  gender: string;
   schemeId: string;
   schemeName: string;
   academicYear: string;
@@ -56,13 +65,13 @@ export type AdminApplicationRecord = {
   institutionName: string;
   course: string;
   academicLevel?: string;
-  familyIncome: number;
+  familyIncome: number | null;
   submittedDate: string;
-  currentStage: WorkflowStage;
+  currentStage: string;
   status: ApplicationStatus;
   verificationStatus: VerificationStatus;
   deficiencyStatus: DeficiencyStatus;
-  riskScore: 'Low' | 'Medium' | 'High';
+  riskScore: string;
   lastActionDate: string;
   assignedOfficer?: string;
   notes?: string;

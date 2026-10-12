@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -24,9 +24,9 @@ import {
   type FieldErrors,
 } from '@/components/student/application/ApplicationStepForms';
 import {
-  demoApplicationData,
+  createEmptyApplicationData,
   emptyDeclarations,
-  isSavedApplicationDraft,
+  restoreApplicationData,
   type AcademicInformation,
   type ApplicationData,
   type ApplicationDeclarations,
@@ -34,8 +34,11 @@ import {
   type BankInformation,
   type FamilyInformation,
   type PersonalInformation,
-  type SavedApplicationDraft,
 } from '@/lib/applicationDraft';
+import {
+  fetchStudentApplications,
+  saveStudentApplicationDraft,
+} from '@/lib/studentApplicationsApi';
 import type { Scheme } from '@/lib/schemes';
 
 const stepNames = ['Personal', 'Academic', 'Family & Bank', 'Review'] as const;
@@ -60,7 +63,7 @@ const bankRequired: (keyof BankInformation)[] = [
 
 export function ApplicationWizard({ scheme }: { scheme: Scheme }) {
   const router = useRouter();
-  const [application, setApplication] = useState<ApplicationData>(demoApplicationData);
+  const [application, setApplication] = useState<ApplicationData>(createEmptyApplicationData);
   const [declarations, setDeclarations] = useState<ApplicationDeclarations>(emptyDeclarations);
   const [currentStep, setCurrentStep] = useState<ApplicationStep>(1);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -68,47 +71,83 @@ export function ApplicationWizard({ scheme }: { scheme: Scheme }) {
   const [draftMessage, setDraftMessage] = useState('');
   const [savedAt, setSavedAt] = useState('');
   const [hasLoadedDraft, setHasLoadedDraft] = useState(false);
+  const [applicationId, setApplicationId] = useState('');
+  const [savingToServer, setSavingToServer] = useState(false);
+  const savingRef = useRef(false);
 
-  const storageKey = `student-application-draft:${scheme.id}`;
+  const applicationIdStorageKey = `student-application-id:${scheme.id}`;
   const eligibilityHref = `/student/schemes/${scheme.id}/eligibility`;
   const documentsHref = `/student/schemes/${scheme.id}/apply/documents`;
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        const parsed: unknown = JSON.parse(saved);
-        if (isSavedApplicationDraft(parsed)) {
-          setApplication(parsed.data);
-          setCurrentStep(parsed.currentStep);
-          setDeclarations(parsed.declarations);
-          setSavedAt(parsed.savedAt);
+    let active = true;
+
+    async function loadDraft() {
+      try {
+        let cachedApplicationId: string | null = null;
+        try {
+          cachedApplicationId = localStorage.getItem(applicationIdStorageKey);
+        } catch {
+          // The authenticated application list can recover the draft without this cache.
         }
+        if (cachedApplicationId && active) setApplicationId(cachedApplicationId);
+
+        const applications = await fetchStudentApplications();
+        try {
+          localStorage.removeItem(`student-application-draft:${scheme.id}`);
+        } catch {
+          // Older browser drafts are ignored; the database is the source of truth.
+        }
+        const existingDraft = applications.find(
+          (item) =>
+            item.schemeId === scheme.id &&
+            item.status === 'DRAFT' &&
+            item.id === cachedApplicationId,
+        ) ?? applications.find(
+          (item) => item.schemeId === scheme.id && item.status === 'DRAFT',
+        );
+
+        if (existingDraft && active) {
+          const restoredData = restoreApplicationData(existingDraft.formData);
+          if (!restoredData) {
+            setDraftMessage('Your saved application has an unsupported format. Please contact support before continuing.');
+            return;
+          }
+
+          setApplication(restoredData);
+          setCurrentStep(existingDraft.currentStep);
+          setDeclarations({
+            informationIsTrue: existingDraft.informationConfirmed,
+            verificationAcknowledged: existingDraft.verificationAcknowledged,
+            eligibilityNotGuaranteed: existingDraft.eligibilityNotGuaranteed,
+            termsAccepted: existingDraft.termsAccepted,
+          });
+          setApplicationId(existingDraft.id);
+          setSavedAt(existingDraft.updatedAt);
+          try {
+            localStorage.setItem(applicationIdStorageKey, existingDraft.id);
+          } catch {
+            setDraftMessage('Draft loaded, but this browser could not remember its application ID. It can be recovered from your account.');
+          }
+        }
+      } catch (error) {
+        if (active) {
+          setDraftMessage(
+            error instanceof Error
+              ? `Could not refresh your saved draft: ${error.message}`
+              : 'Could not refresh your saved draft. Please try again.',
+          );
+        }
+      } finally {
+        if (active) setHasLoadedDraft(true);
       }
-    } catch {
-      setDraftMessage('Saved draft could not be loaded. Demo values are shown.');
     }
-    setHasLoadedDraft(true);
-  }, [storageKey]);
 
-  useEffect(() => {
-    if (!hasLoadedDraft) return;
-
-    const nextSavedAt = new Date().toISOString();
-    const draft: SavedApplicationDraft = {
-      data: application,
-      currentStep,
-      declarations,
-      savedAt: nextSavedAt,
+    void loadDraft();
+    return () => {
+      active = false;
     };
-
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(draft));
-      setSavedAt(nextSavedAt);
-    } catch {
-      setDraftMessage('This browser could not save the draft locally. Your current entries remain in this session.');
-    }
-  }, [application, currentStep, declarations, hasLoadedDraft, storageKey]);
+  }, [applicationIdStorageKey, scheme.id]);
 
   function updateApplicationField(section: 'personal', field: keyof PersonalInformation, value: string): void;
   function updateApplicationField(section: 'academic', field: keyof AcademicInformation, value: string): void;
@@ -146,25 +185,45 @@ export function ApplicationWizard({ scheme }: { scheme: Scheme }) {
     setDraftMessage('');
   }
 
-  function handleSaveDraft() {
-    const nextSavedAt = new Date().toISOString();
-    const draft: SavedApplicationDraft = {
-      data: application,
-      currentStep,
-      declarations,
-      savedAt: nextSavedAt,
-    };
-
+  async function saveDraft(step: ApplicationStep): Promise<boolean> {
+    if (!hasLoadedDraft || savingRef.current) return false;
+    savingRef.current = true;
+    setSavingToServer(true);
+    setDraftMessage('');
     try {
-      localStorage.setItem(storageKey, JSON.stringify(draft));
-      setSavedAt(nextSavedAt);
-      setDraftMessage('Draft saved on this device.');
-    } catch {
-      setDraftMessage('This browser could not save the draft locally. Your entries remain in this session.');
+      const saved = await saveStudentApplicationDraft({
+        schemeId: scheme.id,
+        applicationId: applicationId || undefined,
+        currentStep: step,
+        data: application,
+        declarations,
+      });
+
+      setApplicationId(saved.id);
+      setSavedAt(saved.updatedAt);
+      try {
+        localStorage.setItem(applicationIdStorageKey, saved.id);
+      } catch {
+        setDraftMessage('Draft saved to your account, but this browser could not remember its application ID. It can be recovered from your account.');
+        return true;
+      }
+      setDraftMessage('Draft saved to your account.');
+      return true;
+    } catch (error) {
+      setDraftMessage(
+        error instanceof Error
+          ? `Draft could not be saved: ${error.message}`
+          : 'Draft could not be saved. Please try again.',
+      );
+      return false;
+    } finally {
+      savingRef.current = false;
+      setSavingToServer(false);
     }
   }
 
-  function handleContinue() {
+  async function handleContinue() {
+    if (!hasLoadedDraft || savingRef.current) return;
     if (currentStep === 4) {
       if (!declarations.informationIsTrue || !declarations.verificationAcknowledged) {
         setDeclarationError('Please confirm both declarations before continuing to documents.');
@@ -173,7 +232,7 @@ export function ApplicationWizard({ scheme }: { scheme: Scheme }) {
         return;
       }
 
-      router.push(documentsHref);
+      if (await saveDraft(currentStep)) router.push(documentsHref);
       return;
     }
 
@@ -190,9 +249,14 @@ export function ApplicationWizard({ scheme }: { scheme: Scheme }) {
     }
 
     setFieldErrors({});
-    setCurrentStep((currentStep + 1) as ApplicationStep);
-    setDraftMessage('');
+    const nextStep = (currentStep + 1) as ApplicationStep;
+    if (!await saveDraft(nextStep)) return;
+    setCurrentStep(nextStep);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function handleSaveDraft() {
+    void saveDraft(currentStep);
   }
 
   function goBack() {
@@ -238,7 +302,7 @@ export function ApplicationWizard({ scheme }: { scheme: Scheme }) {
         <div className="w-full min-w-0 rounded-lg border border-[#DCE3EC] bg-white p-3.5 sm:max-w-[330px]">
           <div className="flex items-center justify-between gap-3">
             <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">Draft</span>
-            <span className="text-[10px] font-medium text-[#64748B]">{savedAt ? formatSavedAt(savedAt) : 'Preparing local draft'}</span>
+            <span className="text-[10px] font-medium text-[#64748B]">{savedAt ? formatSavedAt(savedAt) : 'Not saved yet'}</span>
           </div>
           <p className="mt-2 break-words text-xs font-semibold text-[#172033]">{scheme.name}</p>
           <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#64748B]">
@@ -253,17 +317,20 @@ export function ApplicationWizard({ scheme }: { scheme: Scheme }) {
           <ApplicationStepper currentStep={currentStep} />
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs">
             <p className="font-semibold text-[#334155]">Step {currentStep} of 4</p>
-            <p className="text-[#64748B]">Your progress is saved locally in this demo.</p>
+            <p className="text-[#64748B]">
+              {savingToServer ? 'Saving your draft to your account…' : 'Your draft is saved to your account when you continue.'}
+            </p>
           </div>
 
           <form
             noValidate
             onSubmit={(event) => {
               event.preventDefault();
-              handleContinue();
+              void handleContinue();
             }}
             className="min-w-0 rounded-xl border border-[#DCE3EC] bg-white p-4 shadow-[0_1px_3px_rgba(23,32,51,0.04)] sm:p-6"
           >
+            <fieldset disabled={!hasLoadedDraft || savingToServer} className="min-w-0 border-0 p-0">
             {currentStep === 1 && (
               <PersonalInformationForm
                 data={application.personal}
@@ -297,7 +364,7 @@ export function ApplicationWizard({ scheme }: { scheme: Scheme }) {
               />
             )}
 
-            {draftMessage && <p role="status" className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs font-medium text-[#126747]">{draftMessage}</p>}
+            {draftMessage && <p role={draftMessage.startsWith('Draft saved') ? 'status' : 'alert'} className={`mt-4 rounded-lg border px-3 py-2.5 text-xs font-medium ${draftMessage.startsWith('Draft saved') ? 'border-emerald-200 bg-emerald-50 text-[#126747]' : 'border-rose-200 bg-rose-50 text-[#A8323D]'}`}>{draftMessage}</p>}
 
             <div className="mt-6 flex flex-col-reverse gap-2 border-t border-[#EEF1F5] pt-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -312,24 +379,23 @@ export function ApplicationWizard({ scheme }: { scheme: Scheme }) {
                 )}
               </div>
               <div className="grid gap-2 sm:flex sm:items-center">
-                <button type="button" onClick={handleSaveDraft} className={`${buttonBase} border border-[#B8C9DC] bg-white text-[#173F7A] hover:bg-blue-50`}>
-                  <Save size={15} aria-hidden="true" />Save Draft
+                <button type="button" onClick={handleSaveDraft} disabled={!hasLoadedDraft || savingToServer} className={`${buttonBase} border border-[#B8C9DC] bg-white text-[#173F7A] hover:bg-blue-50 disabled:cursor-wait disabled:opacity-60`}>
+                  <Save size={15} aria-hidden="true" />{savingToServer ? 'Saving…' : 'Save Draft'}
                 </button>
                 {currentStep < 4 ? (
-                  <button type="submit" className={`${buttonBase} bg-[#173F7A] text-white hover:bg-[#123365]`}>
-                    Continue<ArrowRight size={15} aria-hidden="true" />
+                  <button type="submit" disabled={!hasLoadedDraft || savingToServer} className={`${buttonBase} bg-[#173F7A] text-white hover:bg-[#123365] disabled:cursor-wait disabled:opacity-60`}>
+                    {savingToServer ? 'Saving…' : 'Continue'}<ArrowRight size={15} aria-hidden="true" />
                   </button>
                 ) : (
-                  <button type="submit" className={`${buttonBase} bg-[#173F7A] text-white hover:bg-[#123365]`}>
-                    Continue to Documents<ArrowRight size={15} aria-hidden="true" />
+                  <button type="submit" disabled={!hasLoadedDraft || savingToServer} className={`${buttonBase} bg-[#173F7A] text-white hover:bg-[#123365] disabled:cursor-wait disabled:opacity-60`}>
+                    {savingToServer ? 'Saving…' : 'Continue to Documents'}<ArrowRight size={15} aria-hidden="true" />
                   </button>
                 )}
               </div>
             </div>
+            </fieldset>
           </form>
-          <p className="text-[11px] leading-5 text-[#64748B]">
-            Sample application for demonstration. Do not enter actual identity or bank details.
-          </p>
+          <p className="text-[11px] leading-5 text-[#64748B]">Your application details are saved to your authenticated account when you save or continue.</p>
         </div>
 
         <ApplicationSidebar currentStep={currentStep} fullName={fullName} />
@@ -401,11 +467,11 @@ function ApplicationSidebar({ currentStep, fullName }: { currentStep: Applicatio
         <p className="mt-1 text-xs leading-5 text-[#64748B]">Make sure your information matches your official documents.</p>
         <div className="mt-3 flex items-start gap-2 border-t border-[#DCE3EC] pt-3 text-[10px] leading-4 text-[#64748B]">
           <ShieldCheck size={13} className="mt-0.5 shrink-0 text-[#2563A8]" aria-hidden="true" />
-          {fullName ? `Draft for ${fullName}` : 'Demo draft information'}
+          {fullName ? `Draft for ${fullName}` : 'Your scholarship application draft'}
         </div>
         <div className="mt-3 flex items-start gap-2 text-[10px] leading-4 text-[#64748B]">
           <FileText size={13} className="mt-0.5 shrink-0 text-[#2563A8]" aria-hidden="true" />
-          This preview is stored in this browser only.
+          Your application is saved to your account when you save or continue.
         </div>
       </section>
     </aside>
@@ -460,7 +526,7 @@ function addRequiredErrors<T extends object>(
 
 function formatSavedAt(value: string) {
   const savedTime = new Date(value).getTime();
-  if (Number.isNaN(savedTime)) return 'Saved locally on this device';
-  if (Date.now() - savedTime < 60_000) return 'Last saved just now · this device';
-  return `Last saved ${new Date(savedTime).toLocaleString()} · this device`;
+  if (Number.isNaN(savedTime)) return 'Saved to your account';
+  if (Date.now() - savedTime < 60_000) return 'Saved just now';
+  return `Last saved ${new Date(savedTime).toLocaleString()}`;
 }

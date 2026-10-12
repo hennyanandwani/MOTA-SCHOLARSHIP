@@ -26,19 +26,21 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import {
-  demoApplicationDocuments,
-  documentStatuses,
+  createEmptyApplicationDocuments,
+  mergePersistedApplicationDocuments,
   type ApplicationDocument,
   type DocumentCheckStatus,
   type DocumentStatus,
 } from '@/lib/applicationDocuments';
+import {
+  fetchStudentApplications,
+  uploadStudentApplicationDocument,
+} from '@/lib/studentApplicationsApi';
 
 type DocumentUploadProps = {
   schemeId: string;
   schemeName: string;
 };
-
-type StoredDocument = Pick<ApplicationDocument, 'id' | 'status' | 'fileName' | 'fileSize' | 'sizeBytes'>;
 
 const buttonBase = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563A8] focus-visible:ring-offset-2';
 const acceptedExtensions = ['pdf', 'jpg', 'jpeg', 'png'];
@@ -62,82 +64,86 @@ const documentIcons: Record<ApplicationDocument['icon'], LucideIcon> = {
 };
 
 export function DocumentUpload({ schemeId, schemeName }: DocumentUploadProps) {
-  const [documents, setDocuments] = useState<ApplicationDocument[]>(demoApplicationDocuments);
+  const [documents, setDocuments] = useState<ApplicationDocument[]>(createEmptyApplicationDocuments);
   const [loaded, setLoaded] = useState(false);
+  const [applicationId, setApplicationId] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [draggedDocumentId, setDraggedDocumentId] = useState<string | null>(null);
   const [uploadingDocumentId, setUploadingDocumentId] = useState<string | null>(null);
   const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
-  const storageKey = `student-application-documents:${schemeId}`;
+  const uploadingRef = useRef(false);
+  const applicationIdStorageKey = `student-application-id:${schemeId}`;
   const applicationHref = `/student/schemes/${schemeId}/apply`;
   const reviewHref = `/student/schemes/${schemeId}/apply/review`;
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        const parsed: unknown = JSON.parse(saved);
-        if (isStoredDocumentList(parsed)) {
-          setDocuments((current) => current.map((document) => {
-            const stored = parsed.find((item) => item.id === document.id);
-            if (!stored) return document;
-            return {
-              ...document,
-              ...stored,
-              status: stored.status === 'verifying' ? 'uploaded' : stored.status,
-              progress: undefined,
-            };
+    let active = true;
+
+    async function loadApplicationDocuments() {
+      try {
+        let cachedApplicationId: string | null = null;
+        try {
+          cachedApplicationId = localStorage.getItem(applicationIdStorageKey);
+        } catch {
+          // Match by scheme when browser storage is unavailable.
+        }
+        const applications = await fetchStudentApplications();
+        const application = applications.find(
+          (record) =>
+            record.status === 'DRAFT' &&
+            record.schemeId === schemeId &&
+            record.id === cachedApplicationId,
+        ) ?? applications.find(
+          (record) => record.status === 'DRAFT' && record.schemeId === schemeId,
+        );
+
+        if (!application) {
+          if (active) {
+            setErrors((current) => ({
+              ...current,
+              application: 'Save your application draft before uploading documents.',
+            }));
+          }
+          return;
+        }
+
+        if (!active) return;
+        setApplicationId(application.id);
+        setDocuments(
+          mergePersistedApplicationDocuments(
+            createEmptyApplicationDocuments(),
+            application.documents,
+          ),
+        );
+        try {
+          localStorage.setItem(applicationIdStorageKey, application.id);
+        } catch {
+          setErrors((current) => ({
+            ...current,
+            storage: 'Application loaded, but this browser could not remember its application ID.',
           }));
         }
+      } catch (error) {
+        if (active) {
+          setErrors((current) => ({
+            ...current,
+            application:
+              error instanceof Error
+                ? `Could not load your saved application: ${error.message}`
+                : 'Could not load your saved application. Please try again.',
+          }));
+        }
+      } finally {
+        if (active) setLoaded(true);
       }
-    } catch {
-      setErrors({ storage: 'Saved document details could not be loaded. Demo values are shown.' });
     }
-    setLoaded(true);
-  }, [storageKey]);
 
-  useEffect(() => {
-    if (!loaded) return;
-    const saved: StoredDocument[] = documents.map(({ id, status, fileName, fileSize, sizeBytes }) => ({
-      id,
-      status: status === 'verifying' ? 'uploaded' : status,
-      fileName,
-      fileSize,
-      sizeBytes,
-    }));
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(saved));
-    } catch {
-      setErrors((current) => ({
-        ...current,
-        storage: 'This browser could not save changes locally. Your current selections remain in this session.',
-      }));
-    }
-  }, [documents, loaded, storageKey]);
-
-  useEffect(() => {
-    if (!uploadingDocumentId) return;
-    let progress = 0;
-    const interval = window.setInterval(() => {
-      progress = Math.min(progress + 20, 100);
-      setDocuments((current) => current.map((document) => (
-        document.id === uploadingDocumentId ? { ...document, progress } : document
-      )));
-      if (progress === 100) {
-        window.clearInterval(interval);
-        window.setTimeout(() => {
-          setDocuments((current) => current.map((document) => (
-            document.id === uploadingDocumentId
-              ? { ...document, status: 'uploaded', progress: undefined }
-              : document
-          )));
-          setUploadingDocumentId(null);
-        }, 180);
-      }
-    }, 130);
-    return () => window.clearInterval(interval);
-  }, [uploadingDocumentId]);
+    void loadApplicationDocuments();
+    return () => {
+      active = false;
+    };
+  }, [applicationIdStorageKey, schemeId]);
 
   const activeDocument = documents.find((document) => document.id === activeDocumentId) ?? null;
   const attentionDocuments = documents.filter((document) => document.status === 'needs_attention' || document.status === 'rejected');
@@ -145,8 +151,17 @@ export function DocumentUpload({ schemeId, schemeName }: DocumentUploadProps) {
   const remainingCount = documents.filter((document) => document.status === 'not_uploaded').length;
   const requiredCount = documents.filter((document) => document.required).length;
 
-  function selectFile(documentId: string, file: File | undefined) {
+  async function selectFile(documentId: string, file: File | undefined) {
     if (!file) return;
+    if (uploadingRef.current) return;
+    if (!applicationId) {
+      setErrors((current) => ({
+        ...current,
+        [documentId]: 'Save your application draft before uploading documents.',
+      }));
+      return;
+    }
+
     const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
     if (!acceptedExtensions.includes(extension) || (file.type && !acceptedMimeTypes.includes(file.type))) {
       setErrors((current) => ({ ...current, [documentId]: 'Unsupported file type. Please upload PDF, JPG, JPEG, or PNG.' }));
@@ -162,6 +177,27 @@ export function DocumentUpload({ schemeId, schemeName }: DocumentUploadProps) {
       delete next[documentId];
       return next;
     });
+    const priorDocument = documents.find((document) => document.id === documentId);
+    const apiTypeByDocumentId: Record<string, string> = {
+      'st-certificate': 'CASTE_CERTIFICATE',
+      'income-certificate': 'INCOME_CERTIFICATE',
+      'previous-marksheet': 'MARKSHEET',
+      'identity-document': 'IDENTITY_PROOF',
+      'admission-certificate': 'ADMISSION_PROOF',
+      'bank-proof': 'BANK_PROOF',
+      photograph: 'PHOTOGRAPH',
+    };
+    const apiType = apiTypeByDocumentId[documentId];
+    if (!apiType || !priorDocument) {
+      setErrors((current) => ({
+        ...current,
+        [documentId]: 'This document type is not supported.',
+      }));
+      return;
+    }
+
+    uploadingRef.current = true;
+    setUploadingDocumentId(documentId);
     setDocuments((current) => current.map((document) => document.id === documentId
       ? {
           ...document,
@@ -175,24 +211,55 @@ export function DocumentUpload({ schemeId, schemeName }: DocumentUploadProps) {
           extractedFields: undefined,
         }
       : document));
-    setUploadingDocumentId(documentId);
+
+    try {
+      const uploadedDocument = await uploadStudentApplicationDocument({
+        applicationId,
+        file,
+        type: apiType,
+      });
+      setDocuments((current) => current.map((document) => (
+        document.id === documentId
+          ? mergePersistedApplicationDocuments(
+              [document],
+              [uploadedDocument],
+            )[0]
+          : document
+      )));
+    } catch (error) {
+      setDocuments((current) => current.map((document) => (
+        document.id === documentId ? priorDocument : document
+      )));
+      setErrors((current) => ({
+        ...current,
+        [documentId]:
+          error instanceof Error
+            ? error.message
+            : 'Unable to upload this document. Please try again.',
+      }));
+    } finally {
+      uploadingRef.current = false;
+      setUploadingDocumentId(null);
+    }
   }
 
   function handleInputChange(documentId: string, event: ChangeEvent<HTMLInputElement>) {
-    selectFile(documentId, event.currentTarget.files?.[0]);
+    void selectFile(documentId, event.currentTarget.files?.[0]);
     event.currentTarget.value = '';
   }
 
   function handleDrop(documentId: string, event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
     setDraggedDocumentId(null);
-    selectFile(documentId, event.dataTransfer.files[0]);
+    void selectFile(documentId, event.dataTransfer.files[0]);
   }
 
   function removeFile(documentId: string) {
-    setDocuments((current) => current.map((document) => document.id === documentId
-      ? { ...document, status: 'not_uploaded', fileName: undefined, fileSize: undefined, sizeBytes: undefined, progress: undefined, issue: undefined }
-      : document));
+    const document = documents.find((item) => item.id === documentId);
+    if (document?.persistedDocumentId) return;
+    setDocuments((current) => current.map((item) => item.id === documentId
+      ? { ...item, status: 'not_uploaded', fileName: undefined, fileSize: undefined, sizeBytes: undefined, progress: undefined, issue: undefined }
+      : item));
     setErrors((current) => {
       const next = { ...current };
       delete next[documentId];
@@ -235,8 +302,8 @@ export function DocumentUpload({ schemeId, schemeName }: DocumentUploadProps) {
             <span className="text-[10px] font-medium text-[#64748B]">Academic Year: 2026–27</span>
           </div>
           <p className="mt-2 break-words text-xs font-semibold text-[#172033]">{schemeName}</p>
-          <p className="mt-1 text-[11px] text-[#64748B]">Application ID: MOTA-2026-00124</p>
-          <p className="mt-2 border-t border-[#EEF1F5] pt-2 text-[10px] text-[#64748B]">Changes are stored locally in this demo.</p>
+          <p className="mt-1 break-all text-[11px] text-[#64748B]">Application ID: {applicationId || (loaded ? 'Unavailable' : 'Loading…')}</p>
+          <p className="mt-2 border-t border-[#EEF1F5] pt-2 text-[10px] text-[#64748B]">Documents are uploaded to private storage for this application.</p>
         </section>
       </header>
 
@@ -279,8 +346,8 @@ export function DocumentUpload({ schemeId, schemeName }: DocumentUploadProps) {
             <span className="text-[11px] text-[#64748B]">PDF, JPG or PNG · Up to 5 MB</span>
           </div>
 
+          {errors.application && <p role="alert" className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-[#A8323D]">{errors.application}</p>}
           {errors.storage && <p role="status" className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-[#80520B]">{errors.storage}</p>}
-
           <div className="space-y-3">
             {documents.map((document) => (
               <DocumentCard
@@ -288,6 +355,7 @@ export function DocumentUpload({ schemeId, schemeName }: DocumentUploadProps) {
                 document={document}
                 error={errors[document.id]}
                 dragged={draggedDocumentId === document.id}
+                disabled={!loaded || !applicationId || uploadingDocumentId !== null}
                 inputRef={(element) => { fileInputs.current[document.id] = element; }}
                 onFileChange={(event) => handleInputChange(document.id, event)}
                 onDragEnter={(event) => { event.preventDefault(); setDraggedDocumentId(document.id); }}
@@ -320,14 +388,14 @@ export function DocumentUpload({ schemeId, schemeName }: DocumentUploadProps) {
         <div className="min-w-0">
           <p className="flex items-center gap-2 text-xs font-semibold text-[#173F7A]"><ShieldCheck size={15} aria-hidden="true" />Draft application</p>
           <p className="mt-1 text-xs leading-5 text-[#475569]" role="status" aria-live="polite">
-            {remainingCount > 0 ? `${remainingCount} required document${remainingCount === 1 ? '' : 's'} remaining. You can continue, but your application is incomplete.` : 'All required documents have a file selected. Review each document before continuing.'}
+            {uploadingDocumentId ? 'Uploading document securely…' : remainingCount > 0 ? `${remainingCount} required document${remainingCount === 1 ? '' : 's'} remaining. You can continue, but your application is incomplete.` : 'All required documents have a file selected. Review each document before continuing.'}
           </p>
         </div>
         <div className="grid gap-2 sm:flex sm:items-center">
           <Link href={applicationHref} className={`${buttonBase} w-full border border-[#B8C9DC] bg-white text-[#173F7A] hover:bg-blue-50 sm:w-auto`}>
             <ArrowLeft size={15} aria-hidden="true" />Back to Application
           </Link>
-          <Link href={reviewHref} className={`${buttonBase} w-full bg-[#173F7A] text-white hover:bg-[#123365] sm:w-auto`}>
+          <Link href={reviewHref} aria-disabled={uploadingDocumentId !== null || !loaded} onClick={(event) => { if (uploadingDocumentId !== null || !loaded) event.preventDefault(); }} className={`${buttonBase} w-full bg-[#173F7A] text-white hover:bg-[#123365] sm:w-auto ${(uploadingDocumentId !== null || !loaded) ? 'pointer-events-none opacity-60' : ''}`}>
             {remainingCount > 0 ? 'Continue with missing documents' : 'Continue to Review'}<ArrowRight size={15} aria-hidden="true" />
           </Link>
         </div>
@@ -405,6 +473,7 @@ function DocumentCard({
   error,
   dragged,
   inputRef,
+  disabled,
   onFileChange,
   onDragEnter,
   onDragLeave,
@@ -416,6 +485,7 @@ function DocumentCard({
   error?: string;
   dragged: boolean;
   inputRef: (element: HTMLInputElement | null) => void;
+  disabled: boolean;
   onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onDragEnter: (event: DragEvent<HTMLDivElement>) => void;
   onDragLeave: (event: DragEvent<HTMLDivElement>) => void;
@@ -434,6 +504,7 @@ function DocumentCard({
         ref={inputRef}
         id={`document-file-${document.id}`}
         type="file"
+        disabled={disabled}
         accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
         aria-label={`Choose file for ${document.name}`}
         onChange={onFileChange}
@@ -483,26 +554,28 @@ function DocumentCard({
                   <div className="min-w-0">
                     <p className="break-all text-xs font-semibold text-[#172033]">{document.fileName}</p>
                     <p className="mt-0.5 text-[11px] text-[#64748B]">{document.fileSize}</p>
-                    <p className="mt-1 flex items-center gap-1 text-[10px] font-medium text-[#126747]"><CheckCircle2 size={12} aria-hidden="true" />File selected</p>
+                    <p className="mt-1 flex items-center gap-1 text-[10px] font-medium text-[#126747]"><CheckCircle2 size={12} aria-hidden="true" />{document.persistedDocumentId ? 'Uploaded securely' : 'File selected'}</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
-                  <button type="button" onClick={onOpen} className={`${buttonBase} min-h-10 border border-[#DCE3EC] bg-white px-3 text-xs text-[#334155] hover:bg-[#F8FAFC]`}>
+                  <button type="button" disabled={disabled} onClick={onOpen} className={`${buttonBase} min-h-10 border border-[#DCE3EC] bg-white px-3 text-xs text-[#334155] hover:bg-[#F8FAFC] disabled:opacity-50`}>
                     View
                   </button>
                   <label htmlFor={`document-file-${document.id}`} className={`${buttonBase} min-h-10 cursor-pointer border border-[#B8C9DC] bg-white px-3 text-xs text-[#173F7A] hover:bg-blue-50`}>
                     Replace
                   </label>
-                  <button type="button" onClick={onRemove} aria-label={`Remove ${document.name}`} className={`${buttonBase} col-span-2 min-h-10 border border-[#DCE3EC] bg-white px-3 text-xs text-[#475569] hover:border-rose-200 hover:bg-rose-50 hover:text-[#A8323D] sm:col-span-1`}>
-                    <X size={14} aria-hidden="true" />Remove
-                  </button>
+                  {!document.persistedDocumentId && (
+                      <button type="button" disabled={disabled} onClick={onRemove} aria-label={`Remove ${document.name}`} className={`${buttonBase} col-span-2 min-h-10 border border-[#DCE3EC] bg-white px-3 text-xs text-[#475569] hover:border-rose-200 hover:bg-rose-50 hover:text-[#A8323D] disabled:opacity-50 sm:col-span-1`}>
+                      <X size={14} aria-hidden="true" />Remove
+                    </button>
+                  )}
                 </div>
               </div>
               {document.status === 'verifying' && (
                 <div className="mt-3" aria-live="polite">
-                  <div className="mb-1 flex justify-between gap-2 text-[10px] text-[#64748B]"><span>Preparing local preview</span><span>{document.progress ?? 0}%</span></div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-[#E3EAF2]" role="progressbar" aria-label={`File selection progress for ${document.name}`} aria-valuenow={document.progress ?? 0} aria-valuemin={0} aria-valuemax={100}>
-                    <div className="h-full rounded-full bg-[#2563A8] transition-[width]" style={{ width: `${document.progress ?? 0}%` }} />
+                  <div className="mb-1 flex justify-between gap-2 text-[10px] text-[#64748B]"><span>Uploading to private storage</span></div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-[#E3EAF2]" role="progressbar" aria-label={`Upload in progress for ${document.name}`} aria-valuetext="Upload in progress">
+                    <div className="h-full w-full animate-pulse rounded-full bg-[#2563A8]" />
                   </div>
                 </div>
               )}
@@ -520,6 +593,24 @@ function DocumentCard({
 }
 
 function DocumentVerification({ document }: { document: ApplicationDocument }) {
+  if (document.persistedDocumentId) {
+    return (
+      <div className="mt-3 border-t border-[#EEF1F5] pt-3 text-xs leading-5 text-[#64748B]">
+        <p className="font-semibold text-[#334155]">Server verification status</p>
+        <p className="mt-1">
+          {document.status === 'verified'
+            ? 'The server marks this document as verified.'
+            : document.status === 'needs_attention'
+              ? 'The server flagged this document for review.'
+              : document.status === 'rejected'
+                ? 'The server rejected this document. Upload a replacement if permitted.'
+                : 'No verification result is available yet.'}
+        </p>
+        {document.issue && <p className="mt-1">{document.issue}</p>}
+      </div>
+    );
+  }
+
   if (document.status === 'needs_attention') {
     return (
       <div className="mt-3 border-t border-[#EEF1F5] pt-3">
@@ -689,20 +780,6 @@ function CheckRow({ label, value, status }: { label: string; value: string; stat
 
 function ExtractedValue({ label, value }: { label: string; value: string }) {
   return <div className="min-w-0"><dt className="text-[10px] text-[#64748B]">{label}</dt><dd className="mt-1 break-words text-xs font-semibold text-[#172033]">{value}</dd></div>;
-}
-
-function isStoredDocumentList(value: unknown): value is StoredDocument[] {
-  if (!Array.isArray(value)) return false;
-  return value.every((item: unknown) => {
-    if (typeof item !== 'object' || item === null) return false;
-    const record = item as Record<string, unknown>;
-    return typeof record.id === 'string'
-      && typeof record.status === 'string'
-      && documentStatuses.includes(record.status as DocumentStatus)
-      && (record.fileName === undefined || typeof record.fileName === 'string')
-      && (record.fileSize === undefined || typeof record.fileSize === 'string')
-      && (record.sizeBytes === undefined || typeof record.sizeBytes === 'number');
-  });
 }
 
 function formatFileSize(bytes: number): string {

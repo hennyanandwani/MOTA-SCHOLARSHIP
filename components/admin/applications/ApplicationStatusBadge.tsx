@@ -58,6 +58,12 @@ export function ApplicationStatusBadge({
     case 'In Progress':
     case 'Pending':
     case 'Medium':
+    case 'SUBMITTED':
+    case 'PENDING_VERIFICATION':
+    case 'RECOMMENDED_FOR_APPROVAL':
+    case 'Awaiting verification':
+    case 'Verification in progress':
+    case 'Awaiting officer decision':
       styleClasses = 'bg-amber-50 text-amber-800 border-amber-200';
       Icon = Clock;
       break;
@@ -73,6 +79,8 @@ export function ApplicationStatusBadge({
     case 'Failed':
     case 'Rejected':
     case 'Escalated':
+    case 'FLAGGED_FOR_MANUAL_REVIEW':
+    case 'REJECTED_BY_OFFICER':
       styleClasses = 'bg-rose-100 text-rose-900 border-rose-300 font-semibold';
       Icon = XCircle;
       break;
@@ -96,13 +104,23 @@ export function ApplicationStatusBadge({
 
     case 'Selection':
     case 'Disbursement':
+    case 'APPROVED_BY_OFFICER':
+    case 'Approved':
       styleClasses = 'bg-teal-50 text-teal-800 border-teal-200';
       Icon = CheckCircle;
       break;
 
     case 'None':
+    case 'Not tracked':
+    case 'Not assessed':
+    case 'Not run':
       styleClasses = 'bg-slate-50 text-slate-600 border-slate-200';
       Icon = MinusCircle;
+      break;
+
+    case 'DRAFT':
+      styleClasses = 'bg-slate-100 text-slate-700 border-slate-200';
+      Icon = null;
       break;
 
     default:

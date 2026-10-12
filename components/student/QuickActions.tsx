@@ -1,12 +1,14 @@
+'use client';
+
 import Link from 'next/link';
 import { Bell, CheckCircle2, FileText, Search } from 'lucide-react';
 import { useStudentTranslation } from '@/components/student/settings/StudentSettingsProvider';
 
 const actions = [
-  { label: 'Explore schemes', href: '#recommended-schemes', Icon: Search },
-  { label: 'Check eligibility', href: '#recommended-schemes', Icon: CheckCircle2 },
-  { label: 'View documents', href: '#action-required', Icon: FileText },
-  { label: 'View notifications', href: '#dashboard-stats', Icon: Bell },
+  { label: 'Explore schemes', href: '/student/all-schemes', Icon: Search },
+  { label: 'Review scheme guidance', href: '#recommended-schemes', Icon: CheckCircle2 },
+  { label: 'View documents', href: '/student/documents', Icon: FileText },
+  { label: 'View notifications', href: '/student/notifications', Icon: Bell },
 ];
 
 export function QuickActions() {

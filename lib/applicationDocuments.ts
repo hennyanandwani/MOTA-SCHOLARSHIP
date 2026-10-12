@@ -10,6 +10,7 @@ export type DocumentCheckStatus = 'passed' | 'potential_mismatch' | 'requires_re
 
 export type ApplicationDocument = {
   id: string;
+  persistedDocumentId?: string;
   name: string;
   required: boolean;
   description: string;
@@ -31,6 +32,73 @@ export type ApplicationDocument = {
     issueDate: string;
   };
 };
+
+export type PersistedApplicationDocument = {
+  id: string;
+  type: string;
+  originalName: string;
+  sizeBytes: number;
+  verificationStatus: string;
+  verificationRemarks: string | null;
+};
+
+export function createEmptyApplicationDocuments(): ApplicationDocument[] {
+  return demoApplicationDocuments.map((document) => ({
+    ...document,
+    status: 'not_uploaded',
+    fileName: undefined,
+    fileSize: undefined,
+    sizeBytes: undefined,
+    progress: undefined,
+    issue: undefined,
+    aiChecks: undefined,
+    extractedFields: undefined,
+  }));
+}
+
+export function mergePersistedApplicationDocuments(
+  baseDocuments: ApplicationDocument[],
+  persistedDocuments: readonly PersistedApplicationDocument[],
+): ApplicationDocument[] {
+  const documentIdByType: Record<string, string> = {
+    CASTE_CERTIFICATE: 'st-certificate',
+    INCOME_CERTIFICATE: 'income-certificate',
+    MARKSHEET: 'previous-marksheet',
+    IDENTITY_PROOF: 'identity-document',
+    ADMISSION_PROOF: 'admission-certificate',
+    BANK_PROOF: 'bank-proof',
+    PHOTOGRAPH: 'photograph',
+  };
+  const documentById = new Map(baseDocuments.map((document) => [document.id, document]));
+
+  for (const persisted of persistedDocuments) {
+    const documentId = documentIdByType[persisted.type];
+    const existing = documentId ? documentById.get(documentId) : undefined;
+    if (!existing) continue;
+
+    let status: DocumentStatus = 'uploaded';
+    if (persisted.verificationStatus === 'VERIFIED') status = 'verified';
+    if (persisted.verificationStatus === 'FLAGGED') status = 'needs_attention';
+    if (persisted.verificationStatus === 'REJECTED') status = 'rejected';
+
+    documentById.set(documentId, {
+      ...existing,
+      persistedDocumentId: persisted.id,
+      status,
+      fileName: persisted.originalName,
+      fileSize: formatFileSize(persisted.sizeBytes),
+      sizeBytes: persisted.sizeBytes,
+      issue: persisted.verificationRemarks ?? undefined,
+    });
+  }
+
+  return baseDocuments.map((document) => documentById.get(document.id) ?? document);
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 export const demoApplicationDocuments: ApplicationDocument[] = [
   {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -15,19 +15,22 @@ import {
 } from 'lucide-react';
 import type { SchemeType } from '@/lib/schemes';
 import {
-  demoApplicationDocuments,
-  documentStatuses,
+  createEmptyApplicationDocuments,
+  mergePersistedApplicationDocuments,
   type ApplicationDocument,
-  type DocumentStatus,
 } from '@/lib/applicationDocuments';
 import {
-  demoApplicationData,
-  emptyDeclarations,
-  isSavedApplicationDraft,
+  createEmptyApplicationData,
+  getApplicationSubmissionErrors,
+  restoreApplicationData,
   type ApplicationData,
   type ApplicationStep,
-  type SavedApplicationDraft,
 } from '@/lib/applicationDraft';
+import {
+  fetchStudentApplications,
+  saveStudentApplicationDraft,
+  submitStudentApplication,
+} from '@/lib/studentApplicationsApi';
 import { ApplicationCompleteness } from '@/components/student/review/ApplicationCompleteness';
 import {
   DeclarationChecklist,
@@ -47,50 +50,99 @@ type ReviewApplicationProps = {
   schemeType: SchemeType;
 };
 
-type StoredReviewDocument = {
-  id: string;
-  status: DocumentStatus;
-  fileName?: string;
-  fileSize?: string;
-  sizeBytes?: number;
-};
-
 const buttonBase = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563A8] focus-visible:ring-offset-2';
 const stepNames = ['Personal', 'Academic', 'Family & Bank', 'Documents', 'Review & Submit'];
 
 export function ReviewApplication({ schemeId, schemeName, schemeType }: ReviewApplicationProps) {
   const router = useRouter();
   const { currentSettings } = useStudentSettings();
-  const [application, setApplication] = useState<ApplicationData>(demoApplicationData);
-  const [documents, setDocuments] = useState<ApplicationDocument[]>(demoApplicationDocuments);
-  const [lastSaved, setLastSaved] = useState('01 October 2026');
+  const [application, setApplication] = useState<ApplicationData>(createEmptyApplicationData);
+  const [documents, setDocuments] = useState<ApplicationDocument[]>(createEmptyApplicationDocuments);
+  const [lastSaved, setLastSaved] = useState('');
   const [declarations, setDeclarations] = useState<ReviewDeclarations>(initialReviewDeclarations);
+  const [applicationId, setApplicationId] = useState('');
+  const [applicationNumber, setApplicationNumber] = useState('');
+  const [applicationStatus, setApplicationStatus] = useState('DRAFT');
+  const [submittedAt, setSubmittedAt] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [savingStep, setSavingStep] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
-  const [submittedOn, setSubmittedOn] = useState('');
+  const [submissionErrors, setSubmissionErrors] = useState<string[]>([]);
+  const submissionRef = useRef(false);
+  const savingStepRef = useRef(false);
 
   const applicationHref = `/student/schemes/${schemeId}/apply`;
   const documentsHref = `/student/schemes/${schemeId}/apply/documents`;
 
   useEffect(() => {
-    try {
-      const savedApplication = localStorage.getItem(`student-application-draft:${schemeId}`);
-      if (savedApplication) {
-        const parsed: unknown = JSON.parse(savedApplication);
-        if (isSavedApplicationDraft(parsed)) {
-          setApplication(parsed.data);
-          setLastSaved(formatSavedDate(parsed.savedAt));
+    let active = true;
+
+    async function loadApplication() {
+      try {
+        const applications = await fetchStudentApplications();
+        let cachedApplicationId: string | null = null;
+        try {
+          cachedApplicationId = localStorage.getItem(`student-application-id:${schemeId}`);
+        } catch {
+          // Match by scheme when browser storage is unavailable.
         }
+        const draft = applications.find(
+          (item) => item.schemeId === schemeId && item.id === cachedApplicationId,
+        ) ?? applications.find(
+          (item) => item.schemeId === schemeId,
+        );
+
+        if (!draft) {
+          if (active) setLoadError('No saved application was found for this scholarship. Save your application before reviewing it.');
+          return;
+        }
+
+        const restoredData = restoreApplicationData(draft.formData);
+        if (!restoredData) {
+          if (active) setLoadError('The saved application has an unsupported format. Please contact support before continuing.');
+          return;
+        }
+
+        if (!active) return;
+        setApplication(restoredData);
+        setDocuments(
+          mergePersistedApplicationDocuments(
+            createEmptyApplicationDocuments(),
+            draft.documents,
+          ),
+        );
+        setApplicationNumber(draft.applicationNumber);
+        setApplicationId(draft.id);
+        setApplicationStatus(draft.status);
+        setLastSaved(formatSavedDate(draft.updatedAt));
+        setSubmittedAt(draft.submittedAt ?? '');
+        setDeclarations({
+          informationAccurate: draft.informationConfirmed,
+          verificationAcknowledged: draft.verificationAcknowledged,
+          eligibilityNotGuaranteed: draft.eligibilityNotGuaranteed,
+          termsAccepted: draft.termsAccepted,
+        });
+        try {
+          localStorage.setItem(`student-application-id:${schemeId}`, draft.id);
+        } catch {
+          // The server remains the source of truth; the ID can be recovered by scheme.
+        }
+      } catch (error) {
+        if (active) {
+          setLoadError(error instanceof Error
+            ? `Could not load your saved application: ${error.message}`
+            : 'Could not load your saved application. Please try again.');
+        }
+      } finally {
+        if (active) setLoading(false);
       }
-    } catch {
-      // Keep the typed demo values when local draft data is unavailable.
     }
 
-    try {
-      const savedDocuments = localStorage.getItem(`student-application-documents:${schemeId}`);
-      if (savedDocuments) setDocuments(mergeStoredDocuments(JSON.parse(savedDocuments)));
-    } catch {
-      // Keep the typed demo document states when local draft data is unavailable.
-    }
+    void loadApplication();
+    return () => {
+      active = false;
+    };
   }, [schemeId]);
 
   const fullName = [application.personal.firstName, application.personal.middleName, application.personal.lastName]
@@ -100,49 +152,90 @@ export function ReviewApplication({ schemeId, schemeName, schemeType }: ReviewAp
     document.required && document.status !== 'uploaded' && document.status !== 'verified'
   ));
   const allDeclarationsChecked = Object.values(declarations).every(Boolean);
-  const canSubmit = incompleteDocuments.length === 0 && allDeclarationsChecked;
 
   function updateDeclaration(id: ReviewDeclaration, checked: boolean) {
     setDeclarations((previous) => ({ ...previous, [id]: checked }));
   }
 
-  function editApplicationStep(step: ApplicationStep) {
-    const savedAt = new Date().toISOString();
-    let wizardDeclarations = emptyDeclarations;
+  async function editApplicationStep(step: ApplicationStep) {
+    if (savingStepRef.current || applicationStatus !== 'DRAFT') return;
+    savingStepRef.current = true;
+    setSavingStep(true);
+    setLoadError('');
+    try {
+      const saved = await saveStudentApplicationDraft({
+        schemeId,
+        applicationId: applicationId || undefined,
+        currentStep: step,
+        data: application,
+        declarations: {
+          informationIsTrue: declarations.informationAccurate,
+          verificationAcknowledged: declarations.verificationAcknowledged,
+          eligibilityNotGuaranteed: declarations.eligibilityNotGuaranteed,
+          termsAccepted: declarations.termsAccepted,
+        },
+      });
+      try {
+        localStorage.setItem(`student-application-id:${schemeId}`, saved.id);
+      } catch {
+        // The application can still be recovered from the authenticated account.
+      }
+      setApplicationId(saved.id);
+      setApplicationNumber(saved.applicationNumber);
+      setLastSaved(formatSavedDate(saved.updatedAt));
+      router.push(applicationHref);
+    } catch (error) {
+      setLoadError(error instanceof Error
+        ? `Could not save your review changes: ${error.message}`
+        : 'Could not save your review changes. Please try again.');
+    } finally {
+      savingStepRef.current = false;
+      setSavingStep(false);
+    }
+  }
+
+  async function confirmSubmission() {
+    if (submissionRef.current || applicationStatus !== 'DRAFT') return;
+    submissionRef.current = true;
+    setSavingStep(true);
+    setSubmissionErrors([]);
 
     try {
-      const existing = localStorage.getItem(`student-application-draft:${schemeId}`);
-      if (existing) {
-        const parsed: unknown = JSON.parse(existing);
-        if (isSavedApplicationDraft(parsed)) wizardDeclarations = parsed.declarations;
+      const saved = await saveStudentApplicationDraft({
+        schemeId,
+        applicationId,
+        currentStep: 4,
+        data: application,
+        declarations: {
+          informationIsTrue: declarations.informationAccurate,
+          verificationAcknowledged: declarations.verificationAcknowledged,
+          eligibilityNotGuaranteed: declarations.eligibilityNotGuaranteed,
+          termsAccepted: declarations.termsAccepted,
+        },
+      });
+      setApplicationId(saved.id);
+
+      try {
+        localStorage.setItem(`student-application-id:${schemeId}`, saved.id);
+      } catch {
+        // Submission can continue using the authenticated application ID.
       }
 
-      const draft: SavedApplicationDraft = {
-        data: application,
-        currentStep: step,
-        declarations: wizardDeclarations,
-        savedAt,
-      };
-      localStorage.setItem(`student-application-draft:${schemeId}`, JSON.stringify(draft));
-    } catch {
-      // The application route still opens if local storage is unavailable.
+      const submitted = await submitStudentApplication(saved.id);
+      setApplicationNumber(submitted.applicationNumber);
+      setApplicationStatus(submitted.status);
+      setSubmittedAt(submitted.submittedAt);
+      setLastSaved(formatSavedDate(submitted.submittedAt));
+      setShowConfirmation(false);
+    } catch (error) {
+      setSubmissionErrors([
+        error instanceof Error ? error.message : 'Unable to submit your application. Please try again.',
+      ]);
+      setShowConfirmation(false);
+    } finally {
+      submissionRef.current = false;
+      setSavingStep(false);
     }
-
-    router.push(applicationHref);
-  }
-
-  function confirmSubmission() {
-    if (!canSubmit) return;
-    setSubmittedOn(new Intl.DateTimeFormat('en-IN', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    }).format(new Date()));
-    setShowConfirmation(false);
-  }
-
-  if (submittedOn) {
-    return <SubmissionSuccess submittedOn={submittedOn} schemeName={schemeName} />;
   }
 
   const personalFields: ReviewFieldItem[] = [
@@ -177,6 +270,43 @@ export function ReviewApplication({ schemeId, schemeName, schemeType }: ReviewAp
     { label: 'IFSC Code', value: application.bank.ifscCode },
   ];
 
+  if (loading) {
+    return <p role="status" className="rounded-lg border border-[#DCE3EC] bg-white p-4 text-sm text-[#475569]">Loading your saved application…</p>;
+  }
+
+  if (loadError) {
+    return (
+      <section role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-5">
+        <h1 className="text-base font-semibold text-[#A8323D]">Application review unavailable</h1>
+        <p className="mt-2 text-sm leading-6 text-[#7F2931]">{loadError}</p>
+        <Link href={applicationHref} className={`${buttonBase} mt-4 border border-[#DCE3EC] bg-white text-[#334155] hover:bg-[#F8FAFC]`}>
+          <ArrowLeft size={15} aria-hidden="true" />Return to application
+        </Link>
+      </section>
+    );
+  }
+
+  if (applicationStatus === 'SUBMITTED') {
+    return (
+      <SubmissionSuccess
+        applicationId={applicationId}
+        submittedOn={formatSubmittedDate(submittedAt)}
+        schemeName={schemeName}
+      />
+    );
+  }
+
+  if (applicationStatus !== 'DRAFT') {
+    return (
+      <section role="status" className="rounded-xl border border-[#DCE3EC] bg-white p-5">
+        <h1 className="text-base font-semibold text-[#172033]">Application is being processed</h1>
+        <p className="mt-2 text-sm leading-6 text-[#475569]">
+          This application is no longer an editable draft. Current status: {applicationStatus}.
+        </p>
+      </section>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-[1440px] space-y-5">
       <nav aria-label="Breadcrumb" className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#64748B]">
@@ -206,13 +336,13 @@ export function ReviewApplication({ schemeId, schemeName, schemeType }: ReviewAp
             <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-[#2563A8]">{schemeType} application</p>
               <h2 className="mt-1 break-words text-sm font-bold text-[#172033]">{schemeName}</h2>
-              <p className="mt-1 break-all text-[11px] text-[#64748B]">Application reference: MOTA-2026-00124</p>
+              <p className="mt-1 break-all text-[11px] text-[#64748B]">Application reference: {applicationNumber || applicationId}</p>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3 border-t border-[#EEF1F5] pt-3 sm:grid-cols-3 lg:min-w-[430px] lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
             <InfoValue label="Application Type" value={schemeType} />
             <InfoValue label="Last Saved" value={lastSaved} />
-            <div className="col-span-2 sm:col-span-1"><p className="text-[10px] text-[#64748B]">Application Status</p><span className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-[#1D5796]"><ClipboardCheck size={12} aria-hidden="true" />Ready for Review</span></div>
+            <div className="col-span-2 sm:col-span-1"><p className="text-[10px] text-[#64748B]">Application Status</p><span className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-[#1D5796]"><ClipboardCheck size={12} aria-hidden="true" />{applicationStatus}</span></div>
           </div>
         </div>
       </section>
@@ -263,22 +393,54 @@ export function ReviewApplication({ schemeId, schemeName, schemeType }: ReviewAp
         <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <h2 id="ready-to-submit-heading" className="text-sm font-semibold text-[#172033]">Ready to submit?</h2>
-            <p className="mt-1 max-w-2xl text-xs leading-5 text-[#475569]">Once submitted, your application will enter the official verification and scrutiny workflow.</p>
-            {!canSubmit && <p className="mt-2 flex items-start gap-1.5 text-[11px] font-medium leading-5 text-[#80520B]"><AlertCircle size={14} className="mt-0.5 shrink-0" aria-hidden="true" />{incompleteDocuments.length > 0 ? 'Complete the required documents and declarations to enable submission.' : 'Select all declarations to enable submission.'}</p>}
-            <p className="mt-2 text-[10px] text-[#64748B]">Frontend demo only. No application data is sent to a service.</p>
+            <p className="mt-1 max-w-2xl text-xs leading-5 text-[#475569]">Your application will be locked as submitted and enter the official review queue.</p>
+            {incompleteDocuments.length > 0 && <p className="mt-2 flex items-start gap-1.5 text-[11px] font-medium leading-5 text-[#80520B]"><AlertCircle size={14} className="mt-0.5 shrink-0" aria-hidden="true" />Complete all required documents before submission.</p>}
+            {!allDeclarationsChecked && <p className="mt-2 flex items-start gap-1.5 text-[11px] font-medium leading-5 text-[#80520B]"><AlertCircle size={14} className="mt-0.5 shrink-0" aria-hidden="true" />Accept all declarations before submission.</p>}
+            {savingStep && <p role="status" className="mt-2 text-[10px] text-[#64748B]">Saving your application…</p>}
           </div>
           <div className="grid gap-2 sm:flex sm:items-center">
             <Link href={documentsHref} className={`${buttonBase} w-full border border-[#B8C9DC] bg-white text-[#173F7A] hover:bg-blue-50 sm:w-auto`}><ArrowLeft size={15} aria-hidden="true" />Back to Documents</Link>
-            <button type="button" disabled={!canSubmit} onClick={() => setShowConfirmation(true)} className={`${buttonBase} w-full bg-[#173F7A] text-white hover:bg-[#123365] disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600 sm:w-auto`}>
+            <button
+              type="button"
+              disabled={savingStep}
+              onClick={() => {
+                const errors = getApplicationSubmissionErrors(application);
+                if (incompleteDocuments.length > 0) {
+                  errors.push(...incompleteDocuments.map((document) => (
+                    `${document.name} is required and must be uploaded without a rejection or review flag.`
+                  )));
+                }
+                if (!allDeclarationsChecked) {
+                  errors.push('Accept all four declarations before submitting.');
+                }
+                setSubmissionErrors(errors);
+                if (errors.length === 0) setShowConfirmation(true);
+              }}
+              className={`${buttonBase} w-full bg-[#173F7A] text-white hover:bg-[#123365] disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600 sm:w-auto`}
+            >
               Submit Application<ArrowRight size={15} aria-hidden="true" />
             </button>
           </div>
         </div>
       </section>
 
+      {submissionErrors.length > 0 && (
+        <section role="alert" aria-label="Submission requirements" className="rounded-lg border border-rose-200 bg-rose-50 p-4">
+          <h2 className="text-sm font-semibold text-[#A8323D]">Please correct these items before submission</h2>
+          <ul className="mt-2 list-inside list-disc space-y-1 text-xs leading-5 text-[#7F2931]">
+            {submissionErrors.map((error) => <li key={error}>{error}</li>)}
+          </ul>
+        </section>
+      )}
+
       <p className="flex items-start gap-2 border-t border-[#DCE3EC] pt-3 text-[10px] leading-4 text-[#64748B]"><ShieldCheck size={13} className="mt-0.5 shrink-0 text-[#2563A8]" aria-hidden="true" />Final eligibility is determined through official verification. Selection is subject to the applicable scheme process.</p>
 
-      {showConfirmation && <SubmitConfirmationModal onCancel={() => setShowConfirmation(false)} onConfirm={confirmSubmission} />}
+      {showConfirmation && (
+        <SubmitConfirmationModal
+          onCancel={() => setShowConfirmation(false)}
+          onConfirm={() => void confirmSubmission()}
+        />
+      )}
     </div>
   );
 }
@@ -311,37 +473,6 @@ function InfoValue({ label, value }: { label: string; value: string }) {
   return <div className="min-w-0"><p className="text-[10px] text-[#64748B]">{label}</p><p className="mt-1 break-words text-xs font-semibold text-[#172033]">{value}</p></div>;
 }
 
-function mergeStoredDocuments(value: unknown): ApplicationDocument[] {
-  if (!Array.isArray(value)) return demoApplicationDocuments;
-  const saved = new Map<string, StoredReviewDocument>();
-  for (const item of value) {
-    if (isStoredReviewDocument(item)) saved.set(item.id, item);
-  }
-  return demoApplicationDocuments.map((document) => {
-    const stored = saved.get(document.id);
-    if (!stored) return document;
-    return {
-      ...document,
-      ...stored,
-      status: stored.status === 'verifying' ? 'uploaded' : stored.status,
-      progress: undefined,
-    };
-  }).map((document) => document.id === 'identity-document'
-    ? { ...document, name: 'Aadhaar / Identity Proof' }
-    : document);
-}
-
-function isStoredReviewDocument(value: unknown): value is StoredReviewDocument {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const record = value as Record<string, unknown>;
-  return typeof record.id === 'string'
-    && typeof record.status === 'string'
-    && documentStatuses.includes(record.status as DocumentStatus)
-    && (record.fileName === undefined || typeof record.fileName === 'string')
-    && (record.fileSize === undefined || typeof record.fileSize === 'string')
-    && (record.sizeBytes === undefined || typeof record.sizeBytes === 'number');
-}
-
 function formatDate(value: string): string {
   if (!value) return '';
   const date = new Date(`${value}T12:00:00`);
@@ -353,8 +484,20 @@ function formatSavedDate(value: string): string {
   return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(date);
 }
 
+function formatSubmittedDate(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat('en-IN', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      }).format(date);
+}
+
 function formatIncome(value: string): string {
   if (!value || !Number.isFinite(Number(value))) return value;
   return `₹${Number(value).toLocaleString('en-IN')}`;
 }
-
