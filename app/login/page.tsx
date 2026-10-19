@@ -35,7 +35,7 @@ export default function LoginPage() {
       router.replace("/student");
       router.refresh();
     } catch {
-      setError("Login nahi ho saka. Please dobara try karein.");
+      setError("Login failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -56,7 +56,7 @@ export default function LoginPage() {
             Welcome back
           </h1>
           <p className="mt-2 text-sm text-slate-600">
-            Apne account mein login karein.
+            Log in to your account.
           </p>
         </div>
 

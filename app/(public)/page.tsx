@@ -78,10 +78,10 @@ export default function Home() {
 
           <nav className="hidden items-center gap-8 md:flex">
             <a
-              href="#schemes"
+              href="#features"
               className="text-sm font-medium text-slate-600 transition hover:text-[#173F7A]"
             >
-              Schemes
+              Features
             </a>
 
             <a
@@ -92,10 +92,10 @@ export default function Home() {
             </a>
 
             <a
-              href="#features"
+              href="#schemes"
               className="text-sm font-medium text-slate-600 transition hover:text-[#173F7A]"
             >
-              Features
+              Schemes
             </a>
 
             <a

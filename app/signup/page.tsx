@@ -54,7 +54,7 @@ export default function SignupPage() {
           const result = await response.json().catch(() => ({}));
           setError(
             result.error ??
-              "Account bana, lekin student profile setup nahi ho saka."
+            "Account bana, lekin student profile setup nahi ho saka."
           );
           return;
         }
@@ -89,7 +89,7 @@ export default function SignupPage() {
             Create account
           </h1>
           <p className="mt-2 text-sm text-slate-600">
-            Student account banane ke liye details enter karein.
+            Enter your details to create a student account.
           </p>
         </div>
 
