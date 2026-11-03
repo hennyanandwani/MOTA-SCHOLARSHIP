@@ -8,6 +8,7 @@ import { SettingsSection } from './SettingsSection';
 import { SettingsToggle } from './SettingsToggle';
 import { useStudentSettings, useStudentTranslation } from './StudentSettingsProvider';
 import { areSettingsEqual, type StudentSettings } from '@/lib/studentSettings';
+import { signOutAndRedirect } from '@/lib/auth/signOut';
 
 type DialogKind = 'login-activity' | 'change-password' | 'deactivate-account' | 'reset-settings' | null;
 
@@ -25,7 +26,21 @@ export function SettingsPageClient() {
   const t = useStudentTranslation();
   const [dialog, setDialog] = useState<DialogKind>(null);
   const [feedback, setFeedback] = useState('');
+  const [signOutError, setSignOutError] = useState('');
+  const [signingOut, setSigningOut] = useState(false);
   const hasUnsavedChanges = !areSettingsEqual(settings, savedSettings);
+
+  async function handleSignOut() {
+    setSignOutError('');
+    setSigningOut(true);
+    try {
+      await signOutAndRedirect();
+    } catch (error) {
+      console.error('Sign out failed:', error);
+      setSignOutError('Sign out failed. Please try again.');
+      setSigningOut(false);
+    }
+  }
 
   function updateNotification(key: 'emailNotifications' | 'smsNotifications' | 'applicationAlerts' | 'deadlineReminders' | 'documentVerificationUpdates') {
     setCurrentSettings((current) => ({ ...current, [key]: !current[key] }));
@@ -109,6 +124,7 @@ export function SettingsPageClient() {
       </header>
 
       {feedback && <p role="status" aria-live="polite" className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs font-medium leading-5 text-[#166534]"><CheckCircle2 size={15} className="mt-0.5 shrink-0" aria-hidden="true" />{t(feedback)}</p>}
+      {signOutError && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-xs font-medium text-red-800">{t(signOutError)}</p>}
 
       <div className="grid min-w-0 items-start gap-4 xl:grid-cols-2">
         <SettingsSection id="account-preferences" title="Account Preferences" description="Controls your notification preference for this portal. These demo controls do not send or block actual messages." icon={<Bell size={16} />}>
@@ -160,11 +176,11 @@ export function SettingsPageClient() {
           <p className="mt-3 border-t border-[#EEF1F5] pt-3 text-[10px] leading-4 text-[#64748B]">Official communications may still be sent when required for application processing.</p>
         </SettingsSection>
 
-        <SettingsSection id="data-account" title="Data & Account" description="These controls are demo-only and do not call account services." icon={<Download size={16} />}>
+        <SettingsSection id="data-account" title="Data & Account" description="Most controls are demo-only; signing out ends your current session." icon={<Download size={16} />}>
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <button type="button" onClick={() => setFeedback('Demo only. No information file was generated.')} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#B8C9DC] bg-white px-3 text-xs font-semibold text-[#173F7A] transition hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563A8]"><Download size={14} aria-hidden="true" />{t('Download my information')}</button>
             <button type="button" onClick={() => setDialog('deactivate-account')} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#E9C7C9] bg-white px-3 text-xs font-semibold text-[#A8323D] transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563A8]"><AlertTriangle size={14} aria-hidden="true" />{t('Deactivate account')}</button>
-            <button type="button" onClick={() => setFeedback('Sign out is a demo action; your session remains active.')} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#B8C9DC] bg-white px-3 text-xs font-semibold text-[#334155] transition hover:bg-[#F8FAFC] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563A8]"><LogOut size={14} aria-hidden="true" />{t('Sign out')}</button>
+            <button type="button" onClick={handleSignOut} disabled={signingOut} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#B8C9DC] bg-white px-3 text-xs font-semibold text-[#334155] transition hover:bg-[#F8FAFC] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563A8] disabled:cursor-not-allowed disabled:opacity-60"><LogOut size={14} aria-hidden="true" />{t('Sign out')}</button>
             <button type="button" onClick={() => setDialog('reset-settings')} className="inline-flex min-h-10 items-center justify-center rounded-lg px-3 text-xs font-semibold text-[#2563A8] transition hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563A8]">{t('Reset to default settings')}</button>
           </div>
         </SettingsSection>

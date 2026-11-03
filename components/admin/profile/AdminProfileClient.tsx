@@ -1,8 +1,8 @@
 'use client';
 
+import { signOutAndRedirect } from '@/lib/auth/signOut';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import {
   Activity,
   AlertCircle,
@@ -170,7 +170,6 @@ function ProfileValue({ label, value, icon: Icon }: { label: string; value: stri
 }
 
 export function AdminProfileClient({ applications, schemes, rules }: Props) {
-  const router = useRouter();
   const [profile, setProfile] = useState<AdminProfile>(INITIAL_ADMIN_PROFILE);
   const [activity, setActivity] = useState<AdminAuditEvent[]>([]);
   const [editOpen, setEditOpen] = useState(false);
@@ -179,6 +178,8 @@ export function AdminProfileClient({ applications, schemes, rules }: Props) {
   const [feedback, setFeedback] = useState('');
   const [storageError, setStorageError] = useState('');
   const [securityNotice, setSecurityNotice] = useState('');
+  const [signOutError, setSignOutError] = useState('');
+  const [signingOut, setSigningOut] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
   const initialAuditEvents = useMemo(
@@ -300,8 +301,16 @@ export function AdminProfileClient({ applications, schemes, rules }: Props) {
     setSecurityNotice(`${action} was not performed. The production authentication service is not connected in this prototype.`);
   }
 
-  function signOut() {
-    router.push('/');
+  async function signOut() {
+    setSignOutError('');
+    setSigningOut(true);
+    try {
+      await signOutAndRedirect();
+    } catch (error) {
+      console.error('Sign out failed:', error);
+      setSignOutError('Sign out failed. Please try again.');
+      setSigningOut(false);
+    }
   }
 
   return (
@@ -554,7 +563,7 @@ export function AdminProfileClient({ applications, schemes, rules }: Props) {
             )}
           </Panel>
 
-          <Panel title="Profile Actions" description="Shortcuts to account preferences, audit activity, and the existing sign-out route.">
+          <Panel title="Profile Actions" description="Shortcuts to account preferences, audit activity, and sign out.">
             <div className="grid gap-2">
               <a href="#notification-preferences" className="inline-flex min-h-10 items-center justify-between gap-3 border border-[#C9D4E2] px-3 text-xs font-semibold text-[#173F7A] hover:bg-[#F6F8FB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#2563A8]">
                 <span className="inline-flex items-center gap-2"><Settings size={14} aria-hidden="true" /> Open Settings & Preferences</span>
@@ -564,11 +573,12 @@ export function AdminProfileClient({ applications, schemes, rules }: Props) {
                 <span className="inline-flex items-center gap-2"><Activity size={14} aria-hidden="true" /> View Audit Activity</span>
                 <ExternalLink size={14} aria-hidden="true" />
               </Link>
-              <button type="button" onClick={signOut} className="inline-flex min-h-10 items-center justify-between gap-3 border border-[#E8C9CC] px-3 text-xs font-semibold text-[#96313B] hover:bg-[#FDF4F4] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#2563A8]">
+              {signOutError && <p role="alert" className="text-xs text-[#A8323D]">{signOutError}</p>}
+              <button type="button" onClick={signOut} disabled={signingOut} className="inline-flex min-h-10 items-center justify-between gap-3 border border-[#E8C9CC] px-3 text-xs font-semibold text-[#96313B] hover:bg-[#FDF4F4] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#2563A8] disabled:cursor-not-allowed disabled:opacity-60">
                 <span className="inline-flex items-center gap-2"><LogOut size={14} aria-hidden="true" /> Sign Out</span>
                 <ChevronRight size={14} aria-hidden="true" />
               </button>
-              <p className="text-[10px] leading-4 text-[#64748B]">Sign out follows the shared prototype behavior and returns to the portal landing page. No identity session is revoked by this demo action.</p>
+              <p className="text-[10px] leading-4 text-[#64748B]">Sign out ends your current session and returns to the portal landing page.</p>
             </div>
           </Panel>
         </div>

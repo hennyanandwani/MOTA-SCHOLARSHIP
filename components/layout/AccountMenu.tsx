@@ -1,9 +1,10 @@
 'use client';
 
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { HelpCircle, LogOut, Settings, UserRound } from 'lucide-react';
+import { signOutAndRedirect } from '@/lib/auth/signOut';
 import { useStudentTranslation } from '@/components/student/settings/StudentSettingsProvider';
 
 type AccountMenuProps = {
@@ -22,7 +23,6 @@ export function AccountMenu({
   context,
 }: AccountMenuProps) {
   const t = useStudentTranslation();
-  const router = useRouter();
   const pathname = usePathname();
 
   const isAdmin = context === 'admin' || (context === undefined && pathname.startsWith('/admin'));
@@ -34,6 +34,8 @@ export function AccountMenu({
   const settingsHref = isAdmin ? '/admin/settings' : '/student/settings';
   const helpHref = isAdmin ? '/admin/help' : '/student/help';
   const [open, setOpen] = useState(false);
+  const [signOutError, setSignOutError] = useState('');
+  const [signingOut, setSigningOut] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -89,9 +91,16 @@ export function AccountMenu({
     setOpen(false);
   }
 
-  function handleSignOut() {
-    setOpen(false);
-    router.push('/');
+  async function handleSignOut() {
+    setSignOutError('');
+    setSigningOut(true);
+    try {
+      await signOutAndRedirect();
+    } catch (error) {
+      console.error('Sign out failed:', error);
+      setSignOutError('Sign out failed. Please try again.');
+      setSigningOut(false);
+    }
   }
 
   return (
@@ -136,7 +145,8 @@ export function AccountMenu({
           <Link href={settingsHref} role="menuitem" onClick={closeAfterNavigation} className={menuItemClassName}><Settings size={15} aria-hidden="true" />{t('Settings')}</Link>
           <Link href={helpHref} role="menuitem" onClick={closeAfterNavigation} className={menuItemClassName}><HelpCircle size={15} aria-hidden="true" />{t('Help & Support')}</Link>
           <div className="my-1 border-t border-[#EEF1F5]" role="separator" />
-          <button type="button" role="menuitem" onClick={handleSignOut} className={`${menuItemClassName} text-[#A8323D] hover:bg-rose-50`}>
+          {signOutError && <p role="alert" className="px-2.5 py-2 text-xs text-[#A8323D]">{t(signOutError)}</p>}
+          <button type="button" role="menuitem" onClick={handleSignOut} disabled={signingOut} className={`${menuItemClassName} text-[#A8323D] hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60`}>
             <LogOut size={15} aria-hidden="true" />{t('Sign out')}
           </button>
         </div>

@@ -2,7 +2,9 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
+import { useState } from 'react';
+import { signOutAndRedirect } from '@/lib/auth/signOut';
 import { useStudentTranslation } from '@/components/student/settings/StudentSettingsProvider';
 import {
   LayoutDashboard,
@@ -89,11 +91,24 @@ const navigationIcons: Record<string, React.ElementType> = {
 
 export function Sidebar({ items, title, context }: SidebarProps) {
   const pathname = usePathname();
-  const router = useRouter();
   const t = useStudentTranslation();
+  const [signOutError, setSignOutError] = useState('');
+  const [signingOut, setSigningOut] = useState(false);
   const isAdmin = context === 'admin' || (context === undefined && pathname.startsWith('/admin'));
   const navItems = items ?? (isAdmin ? [] : defaultItems);
   const portalTitle = title ?? (isAdmin ? 'Administration' : 'Student Portal');
+
+  async function handleSignOut() {
+    setSignOutError('');
+    setSigningOut(true);
+    try {
+      await signOutAndRedirect();
+    } catch (error) {
+      console.error('Sign out failed:', error);
+      setSignOutError('Sign out failed. Please try again.');
+      setSigningOut(false);
+    }
+  }
 
   return (
     <aside className="relative z-20 flex w-full shrink-0 flex-col border-b border-[#DCE3EC] bg-white lg:fixed lg:left-0 lg:top-0 lg:h-screen lg:w-64 lg:border-b-0 lg:border-r">
@@ -208,14 +223,16 @@ export function Sidebar({ items, title, context }: SidebarProps) {
 
           <button
             type="button"
-            onClick={() => router.push('/')}
-            className="text-slate-400 transition hover:text-red-500"
+            onClick={handleSignOut}
+            disabled={signingOut}
+            className="text-slate-400 transition hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-60"
             title={t('Logout')}
             aria-label={t('Logout')}
           >
             <LogOut size={16} />
           </button>
         </div>
+        {signOutError && <p role="alert" className="mt-2 text-xs text-[#A8323D]">{t(signOutError)}</p>}
       </div>
     </aside>
   );
