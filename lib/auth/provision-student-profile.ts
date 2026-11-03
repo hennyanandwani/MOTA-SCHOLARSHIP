@@ -1,64 +1,151 @@
-
 import type { User as SupabaseUser } from "@supabase/supabase-js";
-import { prisma } from "@/lib/prisma";
+import { assertDatabaseUrlConfigured, prisma } from "@/lib/prisma";
+import {
+  getExistingUserRecoveryAction,
+  getProvisioningUniqueConflictCode,
+} from "@/lib/auth/provisioningRecovery";
+
+export type StudentProvisioningErrorCode =
+  | "INVALID_AUTH_ID"
+  | "PROFILE_METADATA_MISSING"
+  | "EMAIL_ALREADY_LINKED"
+  | "ROLL_NUMBER_ALREADY_REGISTERED"
+  | "ACCOUNT_ROLE_CONFLICT";
+
+export class StudentProvisioningError extends Error {
+  constructor(readonly code: StudentProvisioningErrorCode) {
+    super(code);
+    this.name = "StudentProvisioningError";
+  }
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "P2002"
+  );
+}
+
+function readMetadataString(
+  metadata: SupabaseUser["user_metadata"],
+  key: string,
+): string {
+  const value = metadata?.[key];
+  return typeof value === "string" ? value.trim() : "";
+}
 
 export async function provisionStudentProfile(authUser: SupabaseUser) {
-  const email = authUser.email?.trim().toLowerCase();
-  const fullName = String(
-    authUser.user_metadata?.full_name ?? ""
-  ).trim();
-  const rollNumber = String(
-    authUser.user_metadata?.roll_number ?? ""
-  ).trim();
+  assertDatabaseUrlConfigured();
 
-  if (!email || !fullName || !rollNumber) {
-    throw new Error("PROFILE_METADATA_MISSING");
+  if (!authUser.id.trim()) {
+    throw new StudentProvisioningError("INVALID_AUTH_ID");
   }
 
-  return prisma.$transaction(async (tx) => {
-    const existingUser = await tx.user.findUnique({
-      where: { supabaseAuthId: authUser.id },
-      include: { student: true },
-    });
+  const email = authUser.email?.trim().toLowerCase() ?? "";
+  const fullName = readMetadataString(authUser.user_metadata, "full_name");
+  const rollNumber = readMetadataString(authUser.user_metadata, "roll_number");
 
-    if (existingUser) {
-      if (!existingUser.student) {
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const existingUser = await tx.user.findUnique({
+        where: { supabaseAuthId: authUser.id },
+        include: { student: true },
+      });
+
+      const existingUserAction = getExistingUserRecoveryAction(existingUser);
+      if (existingUserAction === "role_conflict") {
+        throw new StudentProvisioningError("ACCOUNT_ROLE_CONFLICT");
+      }
+      if (existingUserAction === "reuse" && existingUser) {
+        return existingUser;
+      }
+
+      if (existingUser) {
+        if (!rollNumber || rollNumber.length > 50) {
+          throw new StudentProvisioningError("PROFILE_METADATA_MISSING");
+        }
+
         await tx.student.create({
           data: {
             userId: existingUser.id,
             rollNumber,
           },
         });
+
+        return tx.user.findUniqueOrThrow({
+          where: { id: existingUser.id },
+          include: { student: true },
+        });
       }
 
-      return tx.user.update({
-        where: { id: existingUser.id },
-        data: { email, fullName },
-        include: { student: true },
+      if (
+        !email ||
+        !fullName ||
+        fullName.length > 100 ||
+        !rollNumber ||
+        rollNumber.length > 50
+      ) {
+        throw new StudentProvisioningError("PROFILE_METADATA_MISSING");
+      }
+
+      const emailOwner = await tx.user.findUnique({
+        where: { email },
+        select: { id: true },
       });
-    }
 
-    const emailOwner = await tx.user.findUnique({
-      where: { email },
-    });
+      if (emailOwner) {
+        throw new StudentProvisioningError("EMAIL_ALREADY_LINKED");
+      }
 
-    if (emailOwner) {
-      throw new Error("EMAIL_ALREADY_LINKED");
-    }
-
-    return tx.user.create({
-      data: {
-        supabaseAuthId: authUser.id,
-        email,
-        fullName,
-        role: "STUDENT",
-        student: {
-          create: {
-            rollNumber,
+      return tx.user.create({
+        data: {
+          supabaseAuthId: authUser.id,
+          email,
+          fullName,
+          role: "STUDENT",
+          student: {
+            create: { rollNumber },
           },
         },
-      },
+        include: { student: true },
+      });
+    });
+  } catch (error) {
+    if (error instanceof StudentProvisioningError || !isUniqueConstraintError(error)) {
+      throw error;
+    }
+
+    const concurrentUser = await prisma.user.findUnique({
+      where: { supabaseAuthId: authUser.id },
       include: { student: true },
     });
-  });
+
+    const concurrentUserAction = getExistingUserRecoveryAction(concurrentUser);
+    if (concurrentUserAction === "role_conflict") {
+      throw new StudentProvisioningError("ACCOUNT_ROLE_CONFLICT");
+    }
+    if (concurrentUserAction === "reuse" && concurrentUser) {
+      return concurrentUser;
+    }
+
+    const emailOwner = email
+      ? await prisma.user.findUnique({ where: { email }, select: { id: true } })
+      : null;
+    const rollNumberOwner = rollNumber
+      ? await prisma.student.findUnique({
+        where: { rollNumber },
+        select: { id: true },
+      })
+      : null;
+    const conflictCode = getProvisioningUniqueConflictCode(
+      concurrentUser?.id ?? null,
+      emailOwner?.id ?? null,
+      rollNumberOwner?.id ?? null,
+    );
+    if (conflictCode) throw new StudentProvisioningError(conflictCode);
+
+    throw error;
+  }
 }

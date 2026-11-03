@@ -2,7 +2,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -13,10 +13,22 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    if (
+      new URLSearchParams(window.location.search).get("error") ===
+      "profile_not_provisioned"
+    ) {
+      setError(
+        "Your student profile is incomplete. Sign in again to retry setup, or contact support if it still fails.",
+      );
+    }
+  }, []);
+
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     setLoading(true);
+    let authenticated = false;
 
     try {
       const supabase = createClient();
@@ -31,11 +43,44 @@ export default function LoginPage() {
         setError(loginError.message);
         return;
       }
+      authenticated = true;
 
-      router.replace("/student");
+      const response = await fetch("/api/auth/provision", {
+        method: "POST",
+        credentials: "same-origin",
+      });
+      const result: unknown = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        const message =
+          typeof result === "object" &&
+          result !== null &&
+          "error" in result &&
+          typeof result.error === "string"
+            ? result.error
+            : "Your profile could not be verified. Please try again or contact support.";
+        setError(message);
+        return;
+      }
+
+      if (
+        typeof result !== "object" ||
+        result === null ||
+        !("role" in result) ||
+        (result.role !== "STUDENT" && result.role !== "ADMIN")
+      ) {
+        setError("Your account was verified, but its profile could not be loaded. Please try again.");
+        return;
+      }
+
+      router.replace(result.role === "ADMIN" ? "/admin" : "/student");
       router.refresh();
     } catch {
-      setError("Login failed. Please try again.");
+      setError(
+        authenticated
+          ? "You are signed in, but profile setup could not be completed. Please retry or contact support."
+          : "Login failed. Please try again.",
+      );
     } finally {
       setLoading(false);
     }

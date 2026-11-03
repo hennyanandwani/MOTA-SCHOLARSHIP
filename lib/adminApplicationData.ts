@@ -2,7 +2,7 @@ import {
   ApplicationStatus,
   VerificationStatus,
 } from '@/lib/generated/prisma/client';
-import { prisma } from '@/lib/prisma';
+import { assertDatabaseUrlConfigured, prisma } from '@/lib/prisma';
 import type { AdminApplicationRecord } from '@/lib/adminData';
 
 export type AdminApplicationSummary = AdminApplicationRecord;
@@ -74,6 +74,8 @@ function verificationStatus(statuses: VerificationStatus[]): AdminApplicationRec
 }
 
 export async function getAdminApplicationSummaries(): Promise<AdminApplicationSummary[]> {
+  assertDatabaseUrlConfigured();
+
   const applications = await prisma.scholarshipApplication.findMany({
     orderBy: [{ submittedAt: 'desc' }, { updatedAt: 'desc' }],
     select: {
@@ -140,6 +142,8 @@ export async function getAdminApplicationSummaries(): Promise<AdminApplicationSu
 export async function getAdminApplicationDetail(
   applicationNumber: string,
 ): Promise<AdminApplicationDetail | null> {
+  assertDatabaseUrlConfigured();
+
   const application = await prisma.scholarshipApplication.findUnique({
     where: { applicationNumber },
     select: {

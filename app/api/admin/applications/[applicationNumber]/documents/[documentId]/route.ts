@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
+import { requireEnvironmentVariable } from '@/lib/env';
+import { getSupabasePublicConfig } from '@/lib/supabase/config';
 
 type RouteContext = {
   params: Promise<{ applicationNumber: string; documentId: string }>;
@@ -29,9 +31,19 @@ export async function GET(_request: Request, { params }: RouteContext) {
       return NextResponse.json({ error: 'Document not found.' }, { status: 404 });
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseSecret = process.env.NEXT_PUBLIC_SUPABASE_SECRET_KEY;
-    if (!supabaseUrl || !supabaseSecret) {
+    let supabaseUrl: string;
+    let supabaseSecret: string;
+    try {
+      ({ url: supabaseUrl } = getSupabasePublicConfig());
+      supabaseSecret = requireEnvironmentVariable(
+        'SUPABASE_SECRET_KEY',
+        process.env.SUPABASE_SECRET_KEY,
+      );
+    } catch (configurationError) {
+      console.error(
+        'Admin document storage configuration is invalid:',
+        configurationError instanceof Error ? configurationError.message : 'Unknown error',
+      );
       return NextResponse.json({ error: 'Server storage configuration is missing.' }, { status: 500 });
     }
     const supabase = createSupabaseClient(supabaseUrl, supabaseSecret, {

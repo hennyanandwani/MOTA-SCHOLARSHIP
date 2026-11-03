@@ -1,7 +1,7 @@
 
 import { NextResponse } from "next/server";
 import { ApplicationStatus } from "@/lib/generated/prisma/client";
-import { getCurrentAppUser } from "@/lib/auth/current-user";
+import { requireStudent } from "@/lib/studentAuth";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -55,11 +55,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export async function GET() {
   try {
-    const user = await getCurrentAppUser();
+    const auth = await requireStudent();
 
-    if (!user?.student) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (auth.response) return auth.response;
+    const user = auth.user;
 
     const applications = await prisma.scholarshipApplication.findMany({
       where: { studentId: user.student.id },
@@ -92,11 +91,10 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const user = await getCurrentAppUser();
+    const auth = await requireStudent();
 
-    if (!user?.student) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (auth.response) return auth.response;
+    const user = auth.user;
 
     let body: DraftBody;
     try {

@@ -2,8 +2,10 @@
 import { createClient } from "@supabase/supabase-js";
 import { DocumentType, ApplicationStatus, VerificationStatus } from "@/lib/generated/prisma/client";
 import { NextResponse } from "next/server";
-import { getCurrentAppUser } from "@/lib/auth/current-user";
+import { requireStudent } from "@/lib/studentAuth";
 import { prisma } from "@/lib/prisma";
+import { requireEnvironmentVariable } from "@/lib/env";
+import { getSupabasePublicConfig } from "@/lib/supabase/config";
 
 export const runtime = "nodejs";
 
@@ -60,12 +62,11 @@ function detectFileType(bytes: Uint8Array): string | null {
 }
 
 function getStorageClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const secret = process.env.SUPABASE_SECRET_KEY;
-
-  if (!url || !secret) {
-    throw new Error("SUPABASE_STORAGE_ENV_MISSING");
-  }
+  const { url } = getSupabasePublicConfig();
+  const secret = requireEnvironmentVariable(
+    "SUPABASE_SECRET_KEY",
+    process.env.SUPABASE_SECRET_KEY,
+  );
 
   return createClient(url, secret, {
     auth: {
@@ -84,11 +85,10 @@ export async function POST(
   let storageClient: ReturnType<typeof getStorageClient> | undefined;
 
   try {
-    const user = await getCurrentAppUser();
+    const auth = await requireStudent();
 
-    if (!user?.student) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (auth.response) return auth.response;
+    const user = auth.user;
 
     const { applicationId } = await context.params;
 
@@ -264,7 +264,8 @@ export async function POST(
 
     if (
       error instanceof Error &&
-      error.message === "SUPABASE_STORAGE_ENV_MISSING"
+      (error.message.startsWith("Missing required environment variable:") ||
+        error.message.startsWith("NEXT_PUBLIC_SUPABASE_URL must be"))
     ) {
       return NextResponse.json(
         { error: "Server storage configuration is missing" },

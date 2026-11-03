@@ -5,7 +5,7 @@ import {
   VerificationStatus,
 } from "@/lib/generated/prisma/client";
 import { getApplicationSubmissionErrors } from "@/lib/applicationDraft";
-import { getCurrentAppUser } from "@/lib/auth/current-user";
+import { requireStudent } from "@/lib/studentAuth";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -50,10 +50,9 @@ export async function POST(
   _request: Request,
   context: { params: Promise<{ applicationId: string }> },
 ) {
-  const user = await getCurrentAppUser();
-  if (!user?.student) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requireStudent();
+  if (auth.response) return auth.response;
+  const user = auth.user;
   const studentId = user.student.id;
 
   const { applicationId } = await context.params;

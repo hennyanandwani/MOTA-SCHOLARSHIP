@@ -1,6 +1,6 @@
 
 import { createClient } from "@/lib/supabase/server";
-import { prisma } from "@/lib/prisma";
+import { assertDatabaseUrlConfigured, prisma } from "@/lib/prisma";
 
 export async function getCurrentAppUser() {
   const supabase = await createClient();
@@ -13,6 +13,8 @@ export async function getCurrentAppUser() {
   if (error || !user) {
     return null;
   }
+
+  assertDatabaseUrlConfigured();
 
   return prisma.user.findUnique({
     where: { supabaseAuthId: user.id },
