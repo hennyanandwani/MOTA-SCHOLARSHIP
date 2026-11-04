@@ -1,0 +1,108 @@
+name: ${COMPOSE_PROJECT_NAME:?Set a unique test-only Compose project name}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: fellowshift_concurrency_test
+      POSTGRES_USER: fellowshift_concurrency_test
+      POSTGRES_PASSWORD: ${FELLOWSHIFT_TEST_POSTGRES_PASSWORD:?Set a test-only URL-safe password}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    tmpfs:
+      - /var/lib/postgresql/data
+    networks:
+      - isolated-test
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U fellowshift_concurrency_test -d fellowshift_concurrency_test
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+  runner:
+    image: node:22-bookworm-slim
+    working_dir: /workspace
+    user: node
+    read_only: true
+    tmpfs:
+      - /tmp
+    environment:
+      NODE_ENV: test
+      HOME: /tmp
+      FELLOWSHIFT_RUN_POSTGRES_TESTS: ${FELLOWSHIFT_RUN_POSTGRES_TESTS:?Set to 1 only after test execution approval}
+      FELLOWSHIFT_TEST_DATABASE_URL: postgresql://fellowshift_concurrency_test:${FELLOWSHIFT_TEST_POSTGRES_PASSWORD:?Set a test-only URL-safe password}@postgres:5432/fellowshift_concurrency_test
+    entrypoint:
+      - node
+      - node_modules/tsx/dist/cli.mjs
+    command:
+      - --test
+      - tests/postgres/concurrency.postgres.test.ts
+      - tests/postgres/storage-mock.test.ts
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - isolated-test
+    volumes:
+      - type: bind
+        source: ../../node_modules
+        target: /workspace/node_modules
+        read_only: true
+      - type: bind
+        source: ../../package.json
+        target: /workspace/package.json
+        read_only: true
+      - type: bind
+        source: ../../lib/generated/prisma
+        target: /workspace/lib/generated/prisma
+        read_only: true
+      - type: bind
+        source: ../../lib/applicationDraft.ts
+        target: /workspace/lib/applicationDraft.ts
+        read_only: true
+      - type: bind
+        source: ../../lib/applicationSubmission.ts
+        target: /workspace/lib/applicationSubmission.ts
+        read_only: true
+      - type: bind
+        source: ../../prisma/schema.prisma
+        target: /workspace/prisma/schema.prisma
+        read_only: true
+      - type: bind
+        source: ./client.ts
+        target: /workspace/tests/postgres/client.ts
+        read_only: true
+      - type: bind
+        source: ./concurrency.postgres.test.ts
+        target: /workspace/tests/postgres/concurrency.postgres.test.ts
+        read_only: true
+      - type: bind
+        source: ./prisma.config.ts
+        target: /workspace/tests/postgres/prisma.config.ts
+        read_only: true
+      - type: bind
+        source: ./safety.ts
+        target: /workspace/tests/postgres/safety.ts
+        read_only: true
+      - type: bind
+        source: ./schema-sync.ts
+        target: /workspace/tests/postgres/schema-sync.ts
+        read_only: true
+      - type: bind
+        source: ./storage-mock.test.ts
+        target: /workspace/tests/postgres/storage-mock.test.ts
+        read_only: true
+      - type: bind
+        source: ./verify-target.ts
+        target: /workspace/tests/postgres/verify-target.ts
+        read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+networks:
+  isolated-test:
+    internal: true
+    driver: bridge

@@ -7,6 +7,7 @@ export type StudentApplicationDocumentRecord = {
   sizeBytes: number;
   verificationStatus: string;
   verificationRemarks: string | null;
+  createdAt?: string;
 };
 
 export type ApplicationSubmissionResponse = {
@@ -63,7 +64,8 @@ function parseDocument(value: unknown): StudentApplicationDocumentRecord | null 
     typeof value.verificationStatus !== 'string' ||
     (value.verificationRemarks !== undefined &&
       value.verificationRemarks !== null &&
-      typeof value.verificationRemarks !== 'string')
+      typeof value.verificationRemarks !== 'string') ||
+    (value.createdAt !== undefined && typeof value.createdAt !== 'string')
   ) {
     return null;
   }
@@ -76,6 +78,7 @@ function parseDocument(value: unknown): StudentApplicationDocumentRecord | null 
     verificationStatus: value.verificationStatus,
     verificationRemarks:
       typeof value.verificationRemarks === 'string' ? value.verificationRemarks : null,
+    createdAt: typeof value.createdAt === 'string' ? value.createdAt : undefined,
   };
 }
 

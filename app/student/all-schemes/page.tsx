@@ -1,6 +1,6 @@
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Topbar } from '@/components/layout/Topbar';
-import { SchemeExplorer } from '@/components/student/SchemeExplorer';
+import { DatabaseSchemeBrowser } from '@/components/student/DatabaseSchemeBrowser';
 import { studentNavigation } from '@/lib/navigation';
 
 export default function AllSchemesPage() {
@@ -21,10 +21,9 @@ export default function AllSchemesPage() {
                 Explore scholarships and fellowships available through the portal.
               </p>
             </div>
-            <p className="text-xs font-semibold text-[#2563A8]">12 schemes available</p>
           </section>
 
-          <SchemeExplorer />
+          <DatabaseSchemeBrowser mode="all" />
 
           <p className="border-t border-[#DCE3EC] pt-4 text-[11px] leading-5 text-[#64748B]">
             Scheme availability and eligibility criteria are subject to official scheme rules and may change.

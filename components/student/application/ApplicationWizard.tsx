@@ -61,9 +61,17 @@ const bankRequired: (keyof BankInformation)[] = [
   'accountHolderName', 'bankName', 'accountNumber', 'confirmAccountNumber', 'ifscCode', 'branchName',
 ];
 
-export function ApplicationWizard({ scheme }: { scheme: Scheme }) {
+export function ApplicationWizard({
+  scheme,
+  initialData,
+}: {
+  scheme: Pick<Scheme, 'id' | 'name' | 'type'>;
+  initialData?: ApplicationData;
+}) {
   const router = useRouter();
-  const [application, setApplication] = useState<ApplicationData>(createEmptyApplicationData);
+  const [application, setApplication] = useState<ApplicationData>(
+    () => initialData ?? createEmptyApplicationData(),
+  );
   const [declarations, setDeclarations] = useState<ApplicationDeclarations>(emptyDeclarations);
   const [currentStep, setCurrentStep] = useState<ApplicationStep>(1);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});

@@ -6,7 +6,7 @@ export type DashboardApplication = {
   submittedAt: string | null;
   status: string;
   statusLabel: string;
-  currentStage: string;
+  currentStep: number;
   applicationHref: string;
   reviewHref: string;
 };

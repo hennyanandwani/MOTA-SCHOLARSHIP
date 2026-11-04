@@ -123,27 +123,39 @@ function actionHref(application: StudentApplicationRecord): string {
   const schemeId = encodeURIComponent(application.schemeId);
   return application.status === 'DRAFT'
     ? `/student/schemes/${schemeId}/apply`
-    : `/student/schemes/${schemeId}/apply/review`;
+    : `/student/applications/${encodeURIComponent(application.id)}`;
 }
 
 function ApplicationAction({ application }: { application: StudentApplicationRecord }) {
+  const canEditDocuments = application.status === 'DRAFT' && hasDocumentAction(application);
   const label = application.status === 'DRAFT'
     ? 'Continue application'
     : hasDocumentAction(application)
-      ? 'Review documents'
+      ? 'View document status'
       : 'View application';
-  const href = hasDocumentAction(application)
+  const href = canEditDocuments
     ? `/student/schemes/${encodeURIComponent(application.schemeId)}/apply/documents`
     : actionHref(application);
 
   return (
-    <Link
-      href={href}
-      aria-label={`${label}: ${application.schemeName}`}
-      className="inline-flex min-h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-[#B8C9DC] bg-white px-3 text-xs font-semibold text-[#173F7A] transition hover:border-[#2563A8] hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563A8] focus-visible:ring-offset-2"
-    >
-      {label}<ArrowRight size={13} aria-hidden="true" />
-    </Link>
+    <div className="flex flex-wrap items-center gap-2">
+      <Link
+        href={href}
+        aria-label={`${label}: ${application.schemeName}`}
+        className="inline-flex min-h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-[#B8C9DC] bg-white px-3 text-xs font-semibold text-[#173F7A] transition hover:border-[#2563A8] hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563A8] focus-visible:ring-offset-2"
+      >
+        {label}<ArrowRight size={13} aria-hidden="true" />
+      </Link>
+      {application.status === 'DRAFT' && (
+        <Link
+          href={`/student/applications/${encodeURIComponent(application.id)}`}
+          aria-label={`View application details: ${application.schemeName}`}
+          className="inline-flex min-h-10 items-center justify-center whitespace-nowrap rounded-lg px-3 text-xs font-semibold text-[#2563A8] hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563A8]"
+        >
+          View details
+        </Link>
+      )}
+    </div>
   );
 }
 
@@ -266,7 +278,9 @@ export function ApplicationManager() {
       return second.updatedAt.localeCompare(first.updatedAt);
     }), [allApplications, search, status, schemeType, sortBy]);
 
-  const actionRequiredCount = allApplications.filter(hasDocumentAction).length;
+  const actionRequiredCount = allApplications.filter(
+    (application) => application.status === 'DRAFT' && hasDocumentAction(application),
+  ).length;
   const completedCount = allApplications.filter((application) =>
     application.status === 'APPROVED_BY_OFFICER' ||
     application.status === 'REJECTED_BY_OFFICER',

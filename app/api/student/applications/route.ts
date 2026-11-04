@@ -1,8 +1,14 @@
 
 import { NextResponse } from "next/server";
-import { ApplicationStatus } from "@/lib/generated/prisma/client";
+import { ApplicationStatus, Prisma } from "@/lib/generated/prisma/client";
 import { requireStudent } from "@/lib/studentAuth";
 import { prisma } from "@/lib/prisma";
+import {
+  getDraftLockFailure,
+  getDraftLookupScope,
+  isSerializableTransactionConflict,
+} from "@/lib/applicationConcurrency";
+import { getApplicationStepValidationErrors } from "@/lib/applicationDraft";
 
 export const runtime = "nodejs";
 
@@ -147,31 +153,67 @@ export async function POST(request: Request) {
         ? body.academicYear
         : "2026-2027";
 
-    const existingDraft =
-      typeof body.applicationId === "string"
-        ? await prisma.scholarshipApplication.findFirst({
-            where: {
-              id: body.applicationId,
-              studentId: user.student.id,
-              status: ApplicationStatus.DRAFT,
-            },
-            select: { id: true, schemeId: true },
-          })
-        : await prisma.scholarshipApplication.findFirst({
-            where: {
-              studentId: user.student.id,
-              schemeId: scheme.id,
-              status: ApplicationStatus.DRAFT,
-            },
-            select: { id: true, schemeId: true },
-            orderBy: { updatedAt: "desc" },
-          });
+    const hasRequestedApplicationId = body.applicationId !== undefined;
+    if (
+      hasRequestedApplicationId &&
+      (typeof body.applicationId !== "string" || !body.applicationId.trim())
+    ) {
+      return NextResponse.json({ error: "Invalid application ID" }, { status: 400 });
+    }
+
+    const existingDraft = typeof body.applicationId === "string"
+      ? await prisma.scholarshipApplication.findFirst({
+          where: {
+            id: body.applicationId.trim(),
+            studentId: user.student.id,
+          },
+          select: { id: true, schemeId: true, status: true, currentStep: true },
+        })
+      : await prisma.scholarshipApplication.findFirst({
+          where: {
+            ...getDraftLookupScope(
+              user.student.id,
+              scheme.id,
+              academicYear,
+            ),
+            status: ApplicationStatus.DRAFT,
+          },
+          select: { id: true, schemeId: true, status: true, currentStep: true },
+          orderBy: { updatedAt: "desc" },
+        });
+
+    if (body.applicationId !== undefined && !existingDraft) {
+      return NextResponse.json({ error: "Application not found" }, { status: 404 });
+    }
+
+    if (existingDraft && existingDraft.status !== ApplicationStatus.DRAFT) {
+      return NextResponse.json(
+        { error: "Only a draft application can be updated" },
+        { status: 409 }
+      );
+    }
 
     if (existingDraft && existingDraft.schemeId !== scheme.id) {
       return NextResponse.json(
         { error: "Draft does not belong to this scheme" },
         { status: 400 }
       );
+    }
+
+    if (currentStep > (existingDraft?.currentStep ?? 1)) {
+      const validationErrors = getApplicationStepValidationErrors(
+        data,
+        Math.min(currentStep - 1, 3) as 1 | 2 | 3,
+      );
+      if (validationErrors.length > 0) {
+        return NextResponse.json(
+          {
+            error: "Complete the required fields before continuing.",
+            validationErrors,
+          },
+          { status: 422 },
+        );
+      }
     }
 
     const declarations =
@@ -204,40 +246,45 @@ export async function POST(request: Request) {
       );
     }
 
-    const saved = existingDraft
-      ? await prisma.scholarshipApplication.update({
-          where: { id: existingDraft.id },
-          data: {
-            formData: data as never,
-            currentStep,
-            academicYear,
-            informationConfirmed,
-            verificationAcknowledged,
-            eligibilityNotGuaranteed,
-            termsAccepted,
-            accountNumberConfirmed,
-          },
-          select: {
-            id: true,
-            applicationNumber: true,
-            status: true,
-            currentStep: true,
-            updatedAt: true,
-          },
-        })
-      : await prisma.scholarshipApplication.create({
-          data: {
-            applicationNumber: `DRAFT-${crypto.randomUUID()}`,
+    const draftData = {
+      formData: data as never,
+      currentStep,
+      academicYear,
+      informationConfirmed,
+      verificationAcknowledged,
+      eligibilityNotGuaranteed,
+      termsAccepted,
+      accountNumberConfirmed,
+    };
+
+    if (existingDraft) {
+      const saveResult = await prisma.$transaction(async (tx) => {
+        const update = await tx.scholarshipApplication.updateMany({
+          where: {
+            id: existingDraft.id,
             studentId: user.student.id,
-            schemeId: scheme.id,
-            formData: data as never,
-            currentStep,
-            academicYear,
-            informationConfirmed,
-            verificationAcknowledged,
-            eligibilityNotGuaranteed,
-            termsAccepted,
-            accountNumberConfirmed,
+            status: ApplicationStatus.DRAFT,
+          },
+          data: draftData,
+        });
+
+        if (update.count !== 1) {
+          const current = await tx.scholarshipApplication.findFirst({
+            where: {
+              id: existingDraft.id,
+              studentId: user.student.id,
+            },
+            select: { status: true },
+          });
+          return {
+            kind: getDraftLockFailure(current?.status ?? null),
+          } as const;
+        }
+
+        const application = await tx.scholarshipApplication.findFirst({
+          where: {
+            id: existingDraft.id,
+            studentId: user.student.id,
           },
           select: {
             id: true,
@@ -247,6 +294,100 @@ export async function POST(request: Request) {
             updatedAt: true,
           },
         });
+
+        if (!application) return { kind: "not_found" } as const;
+        return { kind: "saved", application } as const;
+      });
+
+      if (saveResult.kind !== "saved") {
+        return NextResponse.json(
+          {
+            error:
+              saveResult.kind === "not_found"
+                ? "Application not found"
+                : "Only a draft application can be updated",
+          },
+          { status: saveResult.kind === "not_found" ? 404 : 409 }
+        );
+      }
+
+      return NextResponse.json({ application: saveResult.application });
+    }
+
+    let saved;
+    try {
+      saved = await prisma.$transaction(
+        async (tx) => {
+          const concurrentDraft = await tx.scholarshipApplication.findFirst({
+            where: {
+              ...getDraftLookupScope(
+                user.student.id,
+                scheme.id,
+                academicYear,
+              ),
+              status: ApplicationStatus.DRAFT,
+            },
+            select: { id: true },
+            orderBy: { updatedAt: "desc" },
+          });
+
+          if (concurrentDraft) {
+            const update = await tx.scholarshipApplication.updateMany({
+              where: {
+                id: concurrentDraft.id,
+                studentId: user.student.id,
+                status: ApplicationStatus.DRAFT,
+              },
+              data: draftData,
+            });
+            if (update.count !== 1) return null;
+
+            return tx.scholarshipApplication.findUnique({
+              where: { id: concurrentDraft.id },
+              select: {
+                id: true,
+                applicationNumber: true,
+                status: true,
+                currentStep: true,
+                updatedAt: true,
+              },
+            });
+          }
+
+          return tx.scholarshipApplication.create({
+            data: {
+              applicationNumber: `DRAFT-${crypto.randomUUID()}`,
+              studentId: user.student.id,
+              schemeId: scheme.id,
+              ...draftData,
+            },
+            select: {
+              id: true,
+              applicationNumber: true,
+              status: true,
+              currentStep: true,
+              updatedAt: true,
+            },
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (error) {
+      if (isSerializableTransactionConflict(error)) {
+        return NextResponse.json(
+          { error: "A draft was created in another request. Reload your saved draft before continuing." },
+          { status: 409 },
+        );
+      }
+      throw error;
+    }
+
+    if (!saved) {
+      return NextResponse.json(
+        { error: "The draft changed in another request. Reload your saved draft before continuing." },
+        { status: 409 },
+      );
+    }
 
     return NextResponse.json({ application: saved });
   } catch (error) {

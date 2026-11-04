@@ -180,6 +180,48 @@ export function createEmptyApplicationData(): ApplicationData {
   };
 }
 
+export function createApplicationProfilePrefill(profile: {
+  fullName: string;
+  email: string;
+  courseName?: unknown;
+  instituteName?: unknown;
+  annualIncome?: unknown;
+  academicPercentage?: unknown;
+}): ApplicationData {
+  const data = createEmptyApplicationData();
+  const nameParts = profile.fullName.trim().split(/\s+/).filter(Boolean);
+
+  data.personal.firstName = nameParts[0] ?? "";
+  data.personal.middleName = nameParts.length > 2
+    ? nameParts.slice(1, -1).join(" ")
+    : "";
+  data.personal.lastName = nameParts.length > 1
+    ? nameParts[nameParts.length - 1]
+    : "";
+  data.personal.emailAddress = profile.email;
+  data.academic.course = profileValue(profile.courseName);
+  data.academic.institutionName = profileValue(profile.instituteName);
+  data.academic.previousResult = profileValue(profile.academicPercentage);
+  data.family.annualIncome = profileValue(profile.annualIncome);
+
+  return data;
+}
+
+function profileValue(value: unknown): string {
+  if (typeof value === "string" || typeof value === "number") {
+    return String(value);
+  }
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "toString" in value &&
+    typeof value.toString === "function"
+  ) {
+    return value.toString();
+  }
+  return "";
+}
+
 export const emptyDeclarations: ApplicationDeclarations = {
   informationIsTrue: false,
   verificationAcknowledged: false,
@@ -297,6 +339,91 @@ export function getApplicationSubmissionErrors(value: unknown): string[] {
   const annualIncome = Number(data.family.annualIncome);
   if (!Number.isFinite(annualIncome) || annualIncome < 0) {
     errors.push('Annual family income must be a non-negative number.');
+  }
+
+  return errors;
+}
+
+export function getApplicationStepValidationErrors(
+  value: unknown,
+  throughStep: 1 | 2 | 3,
+): string[] {
+  const data = restoreApplicationData(value);
+  if (!data) return ["The application form data is incomplete or invalid."];
+
+  const requiredByStep: Record<
+    1 | 2 | 3,
+    { value: string; label: string }[]
+  > = {
+    1: [
+      { value: data.personal.firstName, label: "First name" },
+      { value: data.personal.lastName, label: "Last name" },
+      { value: data.personal.dateOfBirth, label: "Date of birth" },
+      { value: data.personal.gender, label: "Gender" },
+      { value: data.personal.category, label: "Category" },
+      { value: data.personal.stCertificateNumber, label: "ST certificate number" },
+      { value: data.personal.identityNumber, label: "Identity number" },
+      { value: data.personal.mobileNumber, label: "Mobile number" },
+      { value: data.personal.emailAddress, label: "Email address" },
+      { value: data.personal.address, label: "Address" },
+      { value: data.personal.villageTown, label: "Village or town" },
+      { value: data.personal.district, label: "District" },
+      { value: data.personal.state, label: "State" },
+      { value: data.personal.pinCode, label: "PIN code" },
+    ],
+    2: [
+      { value: data.academic.academicLevel, label: "Academic level" },
+      { value: data.academic.course, label: "Course or program" },
+      { value: data.academic.institutionName, label: "Institution name" },
+      { value: data.academic.institutionType, label: "Institution type" },
+      { value: data.academic.universityBoard, label: "University or board" },
+      { value: data.academic.currentYearSemester, label: "Current year or semester" },
+      { value: data.academic.admissionYear, label: "Admission year" },
+      { value: data.academic.academicSession, label: "Academic session" },
+      { value: data.academic.previousQualification, label: "Previous qualification" },
+      { value: data.academic.previousResult, label: "Previous result" },
+      { value: data.academic.enrollmentNumber, label: "Enrollment number" },
+      { value: data.academic.expectedGraduationYear, label: "Expected graduation year" },
+    ],
+    3: [
+      { value: data.family.guardianName, label: "Parent or guardian name" },
+      { value: data.family.annualIncome, label: "Annual family income" },
+      { value: data.family.incomeCertificateNumber, label: "Income certificate number" },
+      { value: data.family.familyMembers, label: "Number of family members" },
+      { value: data.bank.accountHolderName, label: "Account holder name" },
+      { value: data.bank.bankName, label: "Bank name" },
+      { value: data.bank.accountNumber, label: "Account number" },
+      { value: data.bank.ifscCode, label: "IFSC code" },
+      { value: data.bank.branchName, label: "Branch name" },
+    ],
+  };
+
+  const errors = [1, 2, 3]
+    .slice(0, throughStep)
+    .flatMap((step) =>
+      requiredByStep[step as 1 | 2 | 3]
+        .filter(({ value }) => !value.trim())
+        .map(({ label }) => `${label} is required.`),
+    );
+
+  if (
+    throughStep >= 1 &&
+    data.personal.emailAddress.trim() &&
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.personal.emailAddress.trim())
+  ) {
+    errors.push("Enter a valid email address.");
+  }
+
+  if (throughStep >= 3) {
+    const familyMembers = Number(data.family.familyMembers);
+    if (!Number.isInteger(familyMembers) || familyMembers < 1) {
+      errors.push("Number of family members must be a whole number of at least one.");
+    }
+
+    const annualIncome = Number(data.family.annualIncome);
+    if (!Number.isFinite(annualIncome) || annualIncome < 0) {
+      errors.push("Annual family income must be a non-negative number.");
+    }
   }
 
   return errors;

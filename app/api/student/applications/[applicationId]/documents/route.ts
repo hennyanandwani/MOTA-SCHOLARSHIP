@@ -6,12 +6,19 @@ import { requireStudent } from "@/lib/studentAuth";
 import { prisma } from "@/lib/prisma";
 import { requireEnvironmentVariable } from "@/lib/env";
 import { getSupabasePublicConfig } from "@/lib/supabase/config";
+import {
+  detectApplicationDocumentMimeType,
+  getDocumentUploadValidationError,
+  MAX_APPLICATION_DOCUMENT_SIZE,
+} from "@/lib/applicationDocumentValidation";
+import {
+  getDraftLockFailure,
+  shouldCleanupUploadedObject,
+} from "@/lib/applicationConcurrency";
 
 export const runtime = "nodejs";
 
 const BUCKET = "scholarship-documents";
-const MAX_FILE_SIZE = 5 * 1024 * 1024;
-
 const allowedTypes: Record<string, DocumentType> = {
   CASTE_CERTIFICATE: DocumentType.CASTE_CERTIFICATE,
   INCOME_CERTIFICATE: DocumentType.INCOME_CERTIFICATE,
@@ -22,44 +29,6 @@ const allowedTypes: Record<string, DocumentType> = {
   PHOTOGRAPH: DocumentType.PHOTOGRAPH,
   OTHER: DocumentType.OTHER,
 };
-
-function detectFileType(bytes: Uint8Array): string | null {
-  if (
-    bytes.length >= 5 &&
-    bytes[0] === 0x25 &&
-    bytes[1] === 0x50 &&
-    bytes[2] === 0x44 &&
-    bytes[3] === 0x46 &&
-    bytes[4] === 0x2d
-  ) {
-    return "application/pdf";
-  }
-
-  if (
-    bytes.length >= 3 &&
-    bytes[0] === 0xff &&
-    bytes[1] === 0xd8 &&
-    bytes[2] === 0xff
-  ) {
-    return "image/jpeg";
-  }
-
-  if (
-    bytes.length >= 8 &&
-    bytes[0] === 0x89 &&
-    bytes[1] === 0x50 &&
-    bytes[2] === 0x4e &&
-    bytes[3] === 0x47 &&
-    bytes[4] === 0x0d &&
-    bytes[5] === 0x0a &&
-    bytes[6] === 0x1a &&
-    bytes[7] === 0x0a
-  ) {
-    return "image/png";
-  }
-
-  return null;
-}
 
 function getStorageClient() {
   const { url } = getSupabasePublicConfig();
@@ -83,6 +52,24 @@ export async function POST(
 ) {
   let storagePath: string | undefined;
   let storageClient: ReturnType<typeof getStorageClient> | undefined;
+  let metadataCommitted = false;
+  let metadataWriteMayHaveCommitted = false;
+
+  async function cleanupUploadedObject() {
+    if (!storagePath || !storageClient) return;
+
+    try {
+      const { error } = await storageClient.storage
+        .from(BUCKET)
+        .remove([storagePath]);
+      if (error) console.error("New document cleanup failed.");
+    } catch (error) {
+      console.error(
+        "New document cleanup failed:",
+        error instanceof Error ? error.name : "Unknown error",
+      );
+    }
+  }
 
   try {
     const auth = await requireStudent();
@@ -129,7 +116,7 @@ export async function POST(
       );
     }
 
-    if (file.size === 0 || file.size > MAX_FILE_SIZE) {
+    if (file.size === 0 || file.size > MAX_APPLICATION_DOCUMENT_SIZE) {
       return NextResponse.json(
         { error: "File must be between 1 byte and 5 MB" },
         { status: 400 }
@@ -137,21 +124,21 @@ export async function POST(
     }
 
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const detectedMime = detectFileType(bytes);
-
-    if (
-      !detectedMime ||
-      !["application/pdf", "image/jpeg", "image/png"].includes(detectedMime)
-    ) {
+    const validationError = getDocumentUploadValidationError({
+      size: file.size,
+      declaredMimeType: file.type,
+      bytes,
+    });
+    if (validationError) {
       return NextResponse.json(
-        { error: "Only valid PDF, JPEG and PNG files are accepted" },
+        { error: validationError },
         { status: 400 }
       );
     }
-
-    if (file.type && file.type !== detectedMime) {
+    const detectedMime = detectApplicationDocumentMimeType(bytes);
+    if (!detectedMime) {
       return NextResponse.json(
-        { error: "File content does not match its declared type" },
+        { error: "Only valid PDF, JPEG and PNG files are accepted" },
         { status: 400 }
       );
     }
@@ -163,15 +150,16 @@ export async function POST(
       .replace(/[^\w.\- ()]/g, "_")
       .slice(0, 180) || "document";
 
-    storagePath = [
+    const uploadedStoragePath = [
       user.student.id,
       application.id,
       `${crypto.randomUUID()}-${originalName}`,
     ].join("/");
+    storagePath = uploadedStoragePath;
 
     const { error: uploadError } = await storageClient.storage
       .from(BUCKET)
-      .upload(storagePath, bytes, {
+      .upload(uploadedStoragePath, bytes, {
         contentType: detectedMime,
         upsert: false,
       });
@@ -185,79 +173,128 @@ export async function POST(
     }
 
     const documentType = allowedTypes[rawType];
+    const metadataResult = await prisma.$transaction(async (tx) => {
+      const draftLock = await tx.scholarshipApplication.updateMany({
+        where: {
+          id: application.id,
+          studentId: user.student.id,
+          status: ApplicationStatus.DRAFT,
+        },
+        data: { status: ApplicationStatus.DRAFT },
+      });
 
-    const existingDocument = await prisma.applicationDocument.findFirst({
-      where: {
-        applicationId: application.id,
-        type: documentType,
-      },
-      select: {
-        id: true,
-        storagePath: true,
-      },
+      if (draftLock.count !== 1) {
+        const current = await tx.scholarshipApplication.findFirst({
+          where: {
+            id: application.id,
+            studentId: user.student.id,
+          },
+          select: { status: true },
+        });
+        return {
+          kind: getDraftLockFailure(current?.status ?? null),
+        } as const;
+      }
+
+      const existingDocument = await tx.applicationDocument.findFirst({
+        where: {
+          applicationId: application.id,
+          type: documentType,
+        },
+        select: {
+          id: true,
+          storagePath: true,
+        },
+      });
+
+      const document = existingDocument
+        ? await tx.applicationDocument.update({
+            where: { id: existingDocument.id },
+            data: {
+              storagePath: uploadedStoragePath,
+              originalName,
+              mimeType: detectedMime,
+              sizeBytes: file.size,
+              verificationStatus: VerificationStatus.PENDING,
+              verificationRemarks: null,
+            },
+            select: {
+              id: true,
+              type: true,
+              originalName: true,
+              mimeType: true,
+              sizeBytes: true,
+              verificationStatus: true,
+              createdAt: true,
+            },
+          })
+        : await tx.applicationDocument.create({
+            data: {
+              applicationId: application.id,
+              type: documentType,
+              storagePath: uploadedStoragePath,
+              originalName,
+              mimeType: detectedMime,
+              sizeBytes: file.size,
+            },
+            select: {
+              id: true,
+              type: true,
+              originalName: true,
+              mimeType: true,
+              sizeBytes: true,
+              verificationStatus: true,
+              createdAt: true,
+            },
+          });
+
+      metadataWriteMayHaveCommitted = true;
+      return {
+        kind: "saved" as const,
+        document,
+        previousStoragePath: existingDocument?.storagePath ?? null,
+      };
     });
 
-    const document = existingDocument
-      ? await prisma.applicationDocument.update({
-          where: { id: existingDocument.id },
-          data: {
-            storagePath,
-            originalName,
-            mimeType: detectedMime,
-            sizeBytes: file.size,
-            verificationStatus: VerificationStatus.PENDING,
-            verificationRemarks: null,
-          },
-          select: {
-            id: true,
-            type: true,
-            originalName: true,
-            mimeType: true,
-            sizeBytes: true,
-            verificationStatus: true,
-            createdAt: true,
-          },
-        })
-      : await prisma.applicationDocument.create({
-          data: {
-            applicationId: application.id,
-            type: documentType,
-            storagePath,
-            originalName,
-            mimeType: detectedMime,
-            sizeBytes: file.size,
-          },
-          select: {
-            id: true,
-            type: true,
-            originalName: true,
-            mimeType: true,
-            sizeBytes: true,
-            verificationStatus: true,
-            createdAt: true,
-          },
-        });
+    if (metadataResult.kind !== "saved") {
+      await cleanupUploadedObject();
+      return NextResponse.json(
+        {
+          error:
+            metadataResult.kind === "not_found"
+              ? "Draft application not found"
+              : "Only a draft application can be changed",
+        },
+        { status: metadataResult.kind === "not_found" ? 404 : 409 },
+      );
+    }
 
-    if (existingDocument) {
-      const { error: deleteError } = await storageClient.storage
-        .from(BUCKET)
-        .remove([existingDocument.storagePath]);
+    metadataCommitted = true;
 
-      if (deleteError) {
-        console.error("Old document cleanup failed:", deleteError.message);
+    if (metadataResult.previousStoragePath) {
+      try {
+        const { error: deleteError } = await storageClient.storage
+          .from(BUCKET)
+          .remove([metadataResult.previousStoragePath]);
+
+        if (deleteError) console.error("Old document cleanup failed.");
+      } catch (error) {
+        console.error(
+          "Old document cleanup failed:",
+          error instanceof Error ? error.name : "Unknown error",
+        );
       }
     }
 
-    return NextResponse.json({ document }, { status: 201 });
+    return NextResponse.json({ document: metadataResult.document }, { status: 201 });
   } catch (error) {
-    if (storagePath && storageClient) {
-      const { error: cleanupError } = await storageClient.storage
-        .from(BUCKET)
-        .remove([storagePath]);
-
-      if (cleanupError) {
-        console.error("Upload cleanup failed:", cleanupError.message);
-      }
+    if (
+      shouldCleanupUploadedObject(
+        metadataCommitted,
+        metadataWriteMayHaveCommitted,
+      )
+    ) {
+      await cleanupUploadedObject();
     }
 
     console.error("Document upload request failed:", error);

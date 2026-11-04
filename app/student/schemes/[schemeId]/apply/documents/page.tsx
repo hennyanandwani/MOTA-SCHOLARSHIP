@@ -3,7 +3,7 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { Topbar } from '@/components/layout/Topbar';
 import { DocumentUpload } from '@/components/student/documents/DocumentUpload';
 import { studentNavigation } from '@/lib/navigation';
-import { getSchemeWithDetails } from '@/lib/schemeDetails';
+import { getSchemeWorkflowInfo } from '@/lib/persistedScholarshipScheme';
 
 export default async function DocumentUploadPage({
   params,
@@ -11,9 +11,9 @@ export default async function DocumentUploadPage({
   params: Promise<{ schemeId: string }>;
 }) {
   const { schemeId } = await params;
-  const schemeData = getSchemeWithDetails(schemeId);
+  const scheme = await getSchemeWorkflowInfo(schemeId);
 
-  if (!schemeData) notFound();
+  if (!scheme) notFound();
 
   return (
     <div className="min-h-screen">
@@ -25,10 +25,8 @@ export default async function DocumentUploadPage({
 
       <main className="min-w-0 p-4 sm:p-6 lg:ml-64 lg:p-8">
         <DocumentUpload
-          schemeId={schemeData.scheme.id}
-          schemeName={schemeData.scheme.id === 'post-matric-st'
-            ? 'Post-Matric Scholarship for ST Students'
-            : schemeData.scheme.name}
+          schemeId={scheme.id}
+          schemeName={scheme.name}
         />
       </main>
     </div>

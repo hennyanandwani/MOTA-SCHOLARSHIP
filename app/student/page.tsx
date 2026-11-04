@@ -16,7 +16,6 @@ import type {
 } from '@/components/student/dashboardTypes';
 import { getCurrentAppUser } from '@/lib/auth/current-user';
 import { prisma } from '@/lib/prisma';
-import { schemes as schemeCatalog } from '@/lib/schemes';
 import { studentNavigation } from '@/lib/navigation';
 
 function statusLabel(status: string): string {
@@ -26,19 +25,6 @@ function statusLabel(status: string): string {
     case 'PENDING_VERIFICATION': return 'Under Review';
     case 'FLAGGED_FOR_MANUAL_REVIEW': return 'Manual Review';
     case 'RECOMMENDED_FOR_APPROVAL': return 'Recommended for approval';
-    case 'APPROVED_BY_OFFICER': return 'Approved';
-    case 'REJECTED_BY_OFFICER': return 'Rejected';
-    default: return status;
-  }
-}
-
-function currentStage(status: string): string {
-  switch (status) {
-    case 'DRAFT': return 'Draft in progress';
-    case 'SUBMITTED': return 'Awaiting verification';
-    case 'PENDING_VERIFICATION': return 'Verification in progress';
-    case 'FLAGGED_FOR_MANUAL_REVIEW': return 'Manual review';
-    case 'RECOMMENDED_FOR_APPROVAL': return 'Awaiting officer decision';
     case 'APPROVED_BY_OFFICER': return 'Approved';
     case 'REJECTED_BY_OFFICER': return 'Rejected';
     default: return status;
@@ -110,7 +96,6 @@ export default async function StudentDashboard() {
   let dashboardError = false;
 
   try {
-    const knownSchemeIds = schemeCatalog.map((scheme) => scheme.id);
     const [applicationRows, actionRows, dbTotal, dbUnderReview, dbActionCount, dbSchemes] = await Promise.all([
       prisma.scholarshipApplication.findMany({
         where: { studentId: user.student.id },
@@ -121,6 +106,7 @@ export default async function StudentDashboard() {
           applicationNumber: true,
           schemeId: true,
           status: true,
+          currentStep: true,
           submittedAt: true,
           createdAt: true,
           scheme: { select: { name: true } },
@@ -129,6 +115,7 @@ export default async function StudentDashboard() {
       prisma.scholarshipApplication.findMany({
         where: {
           studentId: user.student.id,
+          status: 'DRAFT',
           documents: { some: { verificationStatus: { in: ['FLAGGED', 'REJECTED'] } } },
         },
         orderBy: { updatedAt: 'desc' },
@@ -161,11 +148,12 @@ export default async function StudentDashboard() {
       prisma.scholarshipApplication.count({
         where: {
           studentId: user.student.id,
+          status: 'DRAFT',
           documents: { some: { verificationStatus: { in: ['FLAGGED', 'REJECTED'] } } },
         },
       }),
       prisma.scholarshipScheme.findMany({
-        where: { isActive: true, id: { in: knownSchemeIds } },
+        where: { isActive: true },
         orderBy: { name: 'asc' },
         take: 3,
         select: { id: true, name: true, description: true, type: true },
@@ -180,9 +168,9 @@ export default async function StudentDashboard() {
       submittedAt: application.submittedAt?.toISOString() ?? null,
       status: application.status,
       statusLabel: statusLabel(application.status),
-      currentStage: currentStage(application.status),
+      currentStep: application.currentStep,
       applicationHref: `/student/schemes/${encodeURIComponent(application.schemeId)}/apply`,
-      reviewHref: `/student/schemes/${encodeURIComponent(application.schemeId)}/apply/review`,
+      reviewHref: `/student/applications/${encodeURIComponent(application.id)}`,
     }));
     actions = actionRows.flatMap((application) => application.documents.map((document) => ({
       id: document.id,
@@ -191,7 +179,7 @@ export default async function StudentDashboard() {
       documentName: documentName(document.type),
       status: document.verificationStatus,
       remarks: document.verificationRemarks,
-      href: `/student/schemes/${encodeURIComponent(application.schemeId)}/apply/review`,
+      href: `/student/schemes/${encodeURIComponent(application.schemeId)}/apply/documents`,
     })));
     totalApplications = dbTotal;
     underReviewCount = dbUnderReview;
