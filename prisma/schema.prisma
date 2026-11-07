@@ -10,6 +10,7 @@ datasource db {
 enum UserRole {
   STUDENT
   ADMIN
+  APPROVER
 }
 
 enum ApplicationStatus {
@@ -20,6 +21,63 @@ enum ApplicationStatus {
   RECOMMENDED_FOR_APPROVAL
   APPROVED_BY_OFFICER
   REJECTED_BY_OFFICER
+  REJECTED_BY_AI
+}
+
+enum AiVerificationStatus {
+  NOT_REQUESTED
+  WAITING_FOR_CONFIGURATION
+  QUEUED
+  IN_PROGRESS
+  ELIGIBLE
+  INELIGIBLE
+  FAILED
+  NEEDS_ATTENTION
+}
+
+enum AiVerificationJobStatus {
+  WAITING_FOR_CONFIGURATION
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+  SUPERSEDED
+}
+
+enum ManualReviewStatus {
+  NOT_READY
+  PENDING
+  IN_PROGRESS
+  VERIFIED
+  REJECTED
+  NEEDS_ATTENTION
+}
+
+enum SelectionOutcome {
+  SELECTED
+  WAITLISTED
+  NOT_RECOMMENDED
+}
+
+enum ApprovalStatus {
+  PENDING_APPROVAL
+  APPROVED
+  RETURNED_FOR_REVIEW
+}
+
+enum DocumentVerificationActorType {
+  ADMIN
+  AI_SYSTEM
+}
+
+enum ApplicationApprovalActorType {
+  SYSTEM
+  APPROVER
+}
+
+enum ScholarshipVerificationPolicyStatus {
+  DRAFT
+  PUBLISHED
 }
 
 enum SchemeType {
@@ -54,6 +112,11 @@ model User {
 
   student   Student?
   decisions ApplicationDecision[] @relation("OfficerDecisions")
+  documentVerificationEvents ApplicationDocumentVerificationEvent[] @relation("DocumentReviewers")
+  selectionDecisions ApplicationSelectionDecision[] @relation("SelectionReviewers")
+  approvalDecisions ApplicationApprovalDecision[] @relation("ApprovalReviewers")
+  requestedAiVerificationJobs AiVerificationJob[] @relation("AiJobRequesters")
+  publishedScholarshipPolicies ScholarshipVerificationPolicy[] @relation("ScholarshipPolicyPublisher")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -84,9 +147,33 @@ model ScholarshipScheme {
   isActive    Boolean    @default(true)
 
   applications ScholarshipApplication[]
+  verificationPolicies ScholarshipVerificationPolicy[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model ScholarshipVerificationPolicy {
+  id                        String                            @id @default(cuid())
+  schemeId                  String
+  scheme                    ScholarshipScheme                 @relation(fields: [schemeId], references: [id], onDelete: Restrict)
+  version                   Int
+  status                    ScholarshipVerificationPolicyStatus @default(DRAFT)
+  eligibilityCriteria       Json
+  requiredDocumentTypes     DocumentType[]                    @default([])
+  aiEligibleDocumentTypes   DocumentType[]                    @default([])
+  officialGuidelineReference String?
+  guidelineRevision         String?
+  publishedById             String?
+  publishedBy               User?                             @relation("ScholarshipPolicyPublisher", fields: [publishedById], references: [id], onDelete: Restrict)
+  publishedAt               DateTime?
+  aiVerificationJobs        AiVerificationJob[]
+  createdAt                 DateTime                          @default(now())
+  updatedAt                 DateTime                          @updatedAt
+
+  @@unique([schemeId, version])
+  @@index([schemeId, status])
+  @@index([publishedById])
 }
 
 model ScholarshipApplication {
@@ -115,9 +202,22 @@ model ScholarshipApplication {
 
   aiConfidence Decimal? @db.Decimal(5, 2)
   aiRemarks    String?
+  aiVerificationStatus AiVerificationStatus @default(NOT_REQUESTED)
+  aiEligibility Boolean?
+  aiExplanation String?
+  studentAiReason String?
+  aiModelVersion String?
+  aiCompletedAt DateTime?
+  aiAttemptCount Int @default(0)
+  aiInputVersion Int @default(0)
+  manualReviewStatus ManualReviewStatus @default(NOT_READY)
 
   documents ApplicationDocument[]
+  documentVerificationEvents ApplicationDocumentVerificationEvent[]
   decisions ApplicationDecision[]
+  aiVerificationJobs AiVerificationJob[]
+  selectionDecisions ApplicationSelectionDecision[]
+  approvalDecisions ApplicationApprovalDecision[]
 
   submittedAt DateTime?
   createdAt   DateTime  @default(now())
@@ -127,6 +227,8 @@ model ScholarshipApplication {
   @@index([status])
   @@index([schemeId])
   @@index([studentId, schemeId])
+  @@index([aiVerificationStatus, manualReviewStatus])
+  @@index([status, submittedAt])
 }
 
 model ApplicationDocument {
@@ -142,11 +244,94 @@ model ApplicationDocument {
 
   verificationStatus  VerificationStatus @default(PENDING)
   verificationRemarks String?
+  verificationEvents ApplicationDocumentVerificationEvent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([applicationId])
+}
+
+model AiVerificationJob {
+  id              String                 @id @default(cuid())
+  applicationId   String
+  application     ScholarshipApplication @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  requestedById   String?
+  requestedBy     User?                  @relation("AiJobRequesters", fields: [requestedById], references: [id], onDelete: Restrict)
+  // Null policy fields identify jobs created without a published policy snapshot.
+  policyId        String?
+  policy          ScholarshipVerificationPolicy? @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  policySnapshot  Json?
+  requestReason   String?
+  inputVersion    Int
+  idempotencyKey  String                 @unique
+  status          AiVerificationJobStatus @default(WAITING_FOR_CONFIGURATION)
+  attemptCount    Int                    @default(0)
+  outcome         AiVerificationStatus?
+  eligibility     Boolean?
+  explanation     String?
+  studentReason   String?
+  modelVersion    String?
+  confidence      Decimal?               @db.Decimal(5, 2)
+  documentResults Json?
+  callbackDigest  String?
+  lastErrorCode   String?
+  completedAt     DateTime?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  @@unique([applicationId, inputVersion])
+  @@index([status, createdAt])
+  @@index([requestedById])
+}
+
+model ApplicationDocumentVerificationEvent {
+  id              String                        @id @default(cuid())
+  applicationId   String
+  application     ScholarshipApplication        @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  documentId      String
+  document        ApplicationDocument           @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  actorType       DocumentVerificationActorType
+  reviewerId      String?
+  reviewer        User?                         @relation("DocumentReviewers", fields: [reviewerId], references: [id], onDelete: Restrict)
+  previousStatus  VerificationStatus
+  newStatus       VerificationStatus
+  remarks         String?
+  createdAt       DateTime                      @default(now())
+
+  @@index([applicationId, createdAt])
+  @@index([documentId, createdAt])
+}
+
+model ApplicationSelectionDecision {
+  id              String                 @id @default(cuid())
+  applicationId   String
+  application     ScholarshipApplication @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  outcome         SelectionOutcome
+  priority        Int?
+  remarks         String
+  reviewerId      String
+  reviewer        User                   @relation("SelectionReviewers", fields: [reviewerId], references: [id], onDelete: Restrict)
+  createdAt       DateTime               @default(now())
+
+  @@index([applicationId, createdAt])
+  @@index([outcome, priority])
+}
+
+model ApplicationApprovalDecision {
+  id              String                 @id @default(cuid())
+  applicationId   String
+  application     ScholarshipApplication @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  status          ApprovalStatus
+  remarks         String
+  actorType       ApplicationApprovalActorType
+  actorId         String?
+  actor           User?                   @relation("ApprovalReviewers", fields: [actorId], references: [id], onDelete: Restrict)
+  createdAt       DateTime               @default(now())
+
+  @@index([applicationId, createdAt])
+  @@index([status, createdAt])
+  @@index([actorId])
 }
 
 model ApplicationDecision {

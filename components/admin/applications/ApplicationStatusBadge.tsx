@@ -81,6 +81,7 @@ export function ApplicationStatusBadge({
     case 'Escalated':
     case 'FLAGGED_FOR_MANUAL_REVIEW':
     case 'REJECTED_BY_OFFICER':
+    case 'REJECTED_BY_AI':
       styleClasses = 'bg-rose-100 text-rose-900 border-rose-300 font-semibold';
       Icon = XCircle;
       break;

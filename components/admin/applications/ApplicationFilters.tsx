@@ -113,6 +113,7 @@ export function ApplicationFilters({
             <option value="RECOMMENDED_FOR_APPROVAL">Recommended for approval</option>
             <option value="APPROVED_BY_OFFICER">Approved by officer</option>
             <option value="REJECTED_BY_OFFICER">Rejected by officer</option>
+            <option value="REJECTED_BY_AI">Rejected by AI verification</option>
           </select>
         </div>
 

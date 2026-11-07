@@ -34,6 +34,33 @@ export function getSubmissionFailureStatus(
   }
 }
 
+export function canResubmitAfterAiRejection(input: {
+  applicationStatus: string;
+  aiVerificationStatus: string;
+  aiAttemptCount: number;
+  aiInputVersion: number;
+  latestJob: {
+    inputVersion: number;
+    status: string;
+    outcome: string | null;
+    completedAt: Date | null;
+  } | null;
+  correctedDocumentUpdatedAt: Date | null;
+}): boolean {
+  return Boolean(
+    input.applicationStatus === "SUBMITTED" &&
+    input.aiVerificationStatus === "INELIGIBLE" &&
+    input.aiAttemptCount >= 1 &&
+    input.aiAttemptCount <= 3 &&
+    input.latestJob?.inputVersion === input.aiInputVersion &&
+    input.latestJob.status === "COMPLETED" &&
+    input.latestJob.outcome === "INELIGIBLE" &&
+    input.latestJob.completedAt &&
+    input.correctedDocumentUpdatedAt &&
+    input.correctedDocumentUpdatedAt > input.latestJob.completedAt,
+  );
+}
+
 export function getSubmissionValidationFailure(input: {
   schemeIsActive: boolean;
   formData: unknown;

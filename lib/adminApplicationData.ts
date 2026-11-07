@@ -1,5 +1,8 @@
 import {
+  AiVerificationStatus,
   ApplicationStatus,
+  ManualReviewStatus,
+  type DocumentType,
   VerificationStatus,
 } from '@/lib/generated/prisma/client';
 import { assertDatabaseUrlConfigured, prisma } from '@/lib/prisma';
@@ -14,20 +17,47 @@ export type AdminApplicationDetail = {
   academicYear: string;
   submittedAt: string | null;
   updatedAt: string;
+  aiVerificationStatus: AiVerificationStatus;
+  aiAttemptCount: number;
+  aiEligibility: boolean | null;
+  aiExplanation: string | null;
+  studentAiReason: string | null;
+  aiModelVersion: string | null;
+  aiCompletedAt: string | null;
+  manualReviewStatus: ManualReviewStatus;
   scheme: { id: string; name: string; type: string };
-  applicant: { name: string; email: string; rollNumber: string };
+  applicant: {
+    name: string;
+    email: string;
+    rollNumber: string;
+    profile: {
+      subCaste: string | null;
+      annualIncome: string | null;
+      academicPercentage: string | null;
+      courseName: string | null;
+      instituteName: string | null;
+    };
+  };
   formData: Record<string, unknown> | null;
   aiConfidence: string | null;
   aiRemarks: string | null;
   documents: {
     id: string;
-    type: string;
+    type: DocumentType;
     originalName: string;
     mimeType: string;
     sizeBytes: number;
     verificationStatus: VerificationStatus;
     verificationRemarks: string | null;
     createdAt: string;
+    verificationEvents: {
+      id: string;
+      previousStatus: VerificationStatus;
+      newStatus: VerificationStatus;
+      remarks: string | null;
+      reviewerName: string | null;
+      createdAt: string;
+    }[];
   }[];
   decisions: {
     id: string;
@@ -35,6 +65,22 @@ export type AdminApplicationDetail = {
     officerRemarks: string | null;
     createdAt: string;
     officerName: string;
+  }[];
+  selectionDecisions: {
+    id: string;
+    outcome: string;
+    priority: number | null;
+    remarks: string;
+    reviewerName: string;
+    createdAt: string;
+  }[];
+  approvalDecisions: {
+    id: string;
+    status: string;
+    remarks: string;
+    actorType: string;
+    actorName: string | null;
+    createdAt: string;
   }[];
 };
 
@@ -59,6 +105,7 @@ function currentStage(status: ApplicationStatus): string {
     case ApplicationStatus.RECOMMENDED_FOR_APPROVAL: return 'Awaiting officer decision';
     case ApplicationStatus.APPROVED_BY_OFFICER: return 'Approved';
     case ApplicationStatus.REJECTED_BY_OFFICER: return 'Rejected';
+    case ApplicationStatus.REJECTED_BY_AI: return 'AI-ineligible';
   }
 }
 
@@ -77,29 +124,45 @@ export async function getAdminApplicationSummaries(): Promise<AdminApplicationSu
   assertDatabaseUrlConfigured();
 
   const applications = await prisma.scholarshipApplication.findMany({
-    orderBy: [{ submittedAt: 'desc' }, { updatedAt: 'desc' }],
+    take: 500,
+    orderBy: [{ updatedAt: 'desc' }, { submittedAt: 'desc' }],
     select: {
       applicationNumber: true,
       status: true,
       academicYear: true,
       submittedAt: true,
       updatedAt: true,
+      aiVerificationStatus: true,
+      aiAttemptCount: true,
+      manualReviewStatus: true,
       formData: true,
       aiConfidence: true,
       scheme: { select: { id: true, name: true } },
       student: {
         select: {
           rollNumber: true,
+          subCaste: true,
           user: { select: { fullName: true } },
         },
       },
       documents: { select: { verificationStatus: true } },
+      selectionDecisions: {
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        select: { outcome: true, priority: true },
+      },
+      approvalDecisions: {
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        select: { status: true },
+      },
     },
   });
 
   return applications.map((application) => ({
     applicationId: application.applicationNumber,
     applicantName: application.student.user.fullName,
+    rollNumber: application.student.rollNumber,
     category: 'ST',
     gender: nestedString(application.formData, 'personal', 'gender'),
     schemeId: application.scheme.id,
@@ -115,6 +178,7 @@ export async function getAdminApplicationSummaries(): Promise<AdminApplicationSu
       return Number.isFinite(amount) ? amount : null;
     })(),
     submittedDate: application.submittedAt?.toLocaleDateString('en-IN') ?? 'Not submitted',
+    submittedAt: application.submittedAt?.toISOString() ?? null,
     currentStage: currentStage(application.status),
     status: application.status,
     verificationStatus: verificationStatus(
@@ -136,6 +200,12 @@ export async function getAdminApplicationSummaries(): Promise<AdminApplicationSu
         document.verificationStatus === VerificationStatus.FLAGGED ||
         document.verificationStatus === VerificationStatus.REJECTED,
     ).length,
+    aiVerificationStatus: application.aiVerificationStatus,
+    aiAttemptCount: application.aiAttemptCount,
+    manualReviewStatus: application.manualReviewStatus,
+    selectionOutcome: application.selectionDecisions[0]?.outcome ?? null,
+    selectionPriority: application.selectionDecisions[0]?.priority ?? null,
+    approvalStatus: application.approvalDecisions[0]?.status ?? null,
   }));
 }
 
@@ -153,6 +223,14 @@ export async function getAdminApplicationDetail(
       academicYear: true,
       submittedAt: true,
       updatedAt: true,
+      aiVerificationStatus: true,
+      aiAttemptCount: true,
+      aiEligibility: true,
+      aiExplanation: true,
+      studentAiReason: true,
+      aiModelVersion: true,
+      aiCompletedAt: true,
+      manualReviewStatus: true,
       formData: true,
       aiConfidence: true,
       aiRemarks: true,
@@ -160,6 +238,11 @@ export async function getAdminApplicationDetail(
       student: {
         select: {
           rollNumber: true,
+          subCaste: true,
+          annualIncome: true,
+          academicPercentage: true,
+          courseName: true,
+          instituteName: true,
           user: { select: { fullName: true, email: true } },
         },
       },
@@ -174,6 +257,17 @@ export async function getAdminApplicationDetail(
           verificationStatus: true,
           verificationRemarks: true,
           createdAt: true,
+          verificationEvents: {
+            orderBy: { createdAt: 'desc' },
+            select: {
+              id: true,
+              previousStatus: true,
+              newStatus: true,
+              remarks: true,
+              reviewer: { select: { fullName: true } },
+              createdAt: true,
+            },
+          },
         },
       },
       decisions: {
@@ -184,6 +278,30 @@ export async function getAdminApplicationDetail(
           officerRemarks: true,
           createdAt: true,
           officer: { select: { fullName: true } },
+        },
+      },
+      selectionDecisions: {
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+        select: {
+          id: true,
+          outcome: true,
+          priority: true,
+          remarks: true,
+          reviewer: { select: { fullName: true } },
+          createdAt: true,
+        },
+      },
+      approvalDecisions: {
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+        select: {
+          id: true,
+          status: true,
+          remarks: true,
+          actorType: true,
+          actor: { select: { fullName: true } },
+          createdAt: true,
         },
       },
     },
@@ -216,11 +334,26 @@ export async function getAdminApplicationDetail(
     academicYear: application.academicYear,
     submittedAt: application.submittedAt?.toISOString() ?? null,
     updatedAt: application.updatedAt.toISOString(),
+    aiVerificationStatus: application.aiVerificationStatus,
+    aiAttemptCount: application.aiAttemptCount,
+    aiEligibility: application.aiEligibility,
+    aiExplanation: application.aiExplanation,
+    studentAiReason: application.studentAiReason,
+    aiModelVersion: application.aiModelVersion,
+    aiCompletedAt: application.aiCompletedAt?.toISOString() ?? null,
+    manualReviewStatus: application.manualReviewStatus,
     scheme: application.scheme,
     applicant: {
       name: application.student.user.fullName,
       email: application.student.user.email,
       rollNumber: application.student.rollNumber,
+      profile: {
+        subCaste: application.student.subCaste,
+        annualIncome: application.student.annualIncome?.toString() ?? null,
+        academicPercentage: application.student.academicPercentage?.toString() ?? null,
+        courseName: application.student.courseName,
+        instituteName: application.student.instituteName,
+      },
     },
     formData: sanitizedFormData,
     aiConfidence: application.aiConfidence?.toString() ?? null,
@@ -228,11 +361,26 @@ export async function getAdminApplicationDetail(
     documents: application.documents.map((document) => ({
       ...document,
       createdAt: document.createdAt.toISOString(),
+      verificationEvents: document.verificationEvents.map((event) => ({
+        ...event,
+        reviewerName: event.reviewer?.fullName ?? null,
+        createdAt: event.createdAt.toISOString(),
+      })),
     })),
     decisions: application.decisions.map((decision) => ({
       ...decision,
       createdAt: decision.createdAt.toISOString(),
       officerName: decision.officer.fullName,
+    })),
+    selectionDecisions: application.selectionDecisions.map((decision) => ({
+      ...decision,
+      reviewerName: decision.reviewer.fullName,
+      createdAt: decision.createdAt.toISOString(),
+    })),
+    approvalDecisions: application.approvalDecisions.map((decision) => ({
+      ...decision,
+      actorName: decision.actor?.fullName ?? null,
+      createdAt: decision.createdAt.toISOString(),
     })),
   };
 }

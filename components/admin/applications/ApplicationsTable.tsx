@@ -73,7 +73,10 @@ export function ApplicationsTable({
                       {app.category}
                     </span>
                   </div>
-                  <div className="text-[11px] text-[#64748B] truncate max-w-[150px]">
+                  <div className="max-w-[150px] truncate text-[11px] text-[#64748B]">
+                    Roll: {app.rollNumber ?? 'Not provided'}
+                  </div>
+                  <div className="max-w-[150px] truncate text-[11px] text-[#64748B]">
                     {app.course}
                   </div>
                 </td>

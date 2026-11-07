@@ -20,7 +20,8 @@ export type ApplicationStatus =
   | 'FLAGGED_FOR_MANUAL_REVIEW'
   | 'RECOMMENDED_FOR_APPROVAL'
   | 'APPROVED_BY_OFFICER'
-  | 'REJECTED_BY_OFFICER';
+  | 'REJECTED_BY_OFFICER'
+  | 'REJECTED_BY_AI';
 
 export type VerificationStatus =
   | 'Pending'
@@ -55,11 +56,13 @@ export type AdminDashboardMetrics = {
 export type AdminApplicationRecord = {
   applicationId: string;
   applicantName: string;
+  rollNumber?: string;
   category: 'ST';
   gender: string;
   schemeId: string;
   schemeName: string;
   academicYear: string;
+  submittedAt?: string | null;
   state: string;
   district: string;
   institutionName: string;
@@ -78,6 +81,12 @@ export type AdminApplicationRecord = {
   verifiedDocsCount?: number;
   pendingDocsCount?: number;
   flaggedDocsCount?: number;
+  aiVerificationStatus?: string;
+  aiAttemptCount?: number;
+  manualReviewStatus?: string;
+  selectionOutcome?: string | null;
+  selectionPriority?: number | null;
+  approvalStatus?: string | null;
   deficiencyIssueCount?: number;
   lastNoticeDate?: string;
   deficiencyResponseStatus?: string;

@@ -20,6 +20,9 @@ export function ApplicationCard({ application, onSelect }: ApplicationCardProps)
           <p className="mt-0.5 text-sm font-semibold text-[#172033]">
             {application.applicantName}
           </p>
+          <p className="text-[11px] text-[#64748B]">
+            Roll: {application.rollNumber ?? 'Not provided'}
+          </p>
         </div>
         <ApplicationStatusBadge value={application.status} size="sm" />
       </div>

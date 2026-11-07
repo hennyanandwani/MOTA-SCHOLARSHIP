@@ -1,37 +1,14 @@
 import { NextResponse } from 'next/server';
-import { ApplicationStatus } from '@/lib/generated/prisma/client';
+import { ApplicationStatus, Prisma } from '@/lib/generated/prisma/client';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
+import {
+  getApplicationDecisionFailure,
+  getMissingVerifiedDocumentTypes,
+  isAiOutcomeAvailableForManualReview,
+} from '@/lib/adminWorkflow';
 
 type RouteContext = { params: Promise<{ applicationNumber: string }> };
-const reviewableStatuses: ApplicationStatus[] = [
-  ApplicationStatus.SUBMITTED,
-  ApplicationStatus.PENDING_VERIFICATION,
-  ApplicationStatus.FLAGGED_FOR_MANUAL_REVIEW,
-  ApplicationStatus.RECOMMENDED_FOR_APPROVAL,
-];
-const transitions: Partial<Record<ApplicationStatus, ApplicationStatus[]>> = {
-  [ApplicationStatus.SUBMITTED]: [
-    ApplicationStatus.PENDING_VERIFICATION,
-    ApplicationStatus.FLAGGED_FOR_MANUAL_REVIEW,
-    ApplicationStatus.RECOMMENDED_FOR_APPROVAL,
-    ApplicationStatus.REJECTED_BY_OFFICER,
-  ],
-  [ApplicationStatus.PENDING_VERIFICATION]: [
-    ApplicationStatus.FLAGGED_FOR_MANUAL_REVIEW,
-    ApplicationStatus.RECOMMENDED_FOR_APPROVAL,
-    ApplicationStatus.REJECTED_BY_OFFICER,
-  ],
-  [ApplicationStatus.FLAGGED_FOR_MANUAL_REVIEW]: [
-    ApplicationStatus.PENDING_VERIFICATION,
-    ApplicationStatus.RECOMMENDED_FOR_APPROVAL,
-    ApplicationStatus.REJECTED_BY_OFFICER,
-  ],
-  [ApplicationStatus.RECOMMENDED_FOR_APPROVAL]: [
-    ApplicationStatus.APPROVED_BY_OFFICER,
-    ApplicationStatus.REJECTED_BY_OFFICER,
-  ],
-};
 
 export async function PATCH(request: Request, { params }: RouteContext) {
   const auth = await requireAdmin();
@@ -57,27 +34,72 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     );
   }
   const nextStatus = status as ApplicationStatus;
-  if (!reviewableStatuses.includes(nextStatus) &&
-      nextStatus !== ApplicationStatus.APPROVED_BY_OFFICER &&
-      nextStatus !== ApplicationStatus.REJECTED_BY_OFFICER) {
-    return NextResponse.json({ error: 'This status is not a review decision.' }, { status: 400 });
-  }
 
   const { applicationNumber } = await params;
   try {
     const result = await prisma.$transaction(async (transaction) => {
       const application = await transaction.scholarshipApplication.findUnique({
         where: { applicationNumber },
-        select: { id: true, status: true },
+        select: {
+          id: true,
+          status: true,
+          submittedAt: true,
+          aiVerificationStatus: true,
+          aiAttemptCount: true,
+          manualReviewStatus: true,
+          documents: {
+            select: { type: true, verificationStatus: true },
+          },
+        },
       });
       if (!application) return { error: 'Application not found.', statusCode: 404 as const };
-      if (!transitions[application.status]?.includes(nextStatus)) {
+      if (!application.submittedAt) {
+        return { error: 'Only submitted applications can receive review decisions.', statusCode: 409 as const };
+      }
+      if (
+        !isAiOutcomeAvailableForManualReview(
+          application.aiVerificationStatus,
+          application.aiAttemptCount,
+        ) ||
+        !['PENDING', 'IN_PROGRESS', 'NEEDS_ATTENTION'].includes(application.manualReviewStatus)
+      ) {
+        return { error: 'Only AI-eligible applications in manual review can receive Admin decisions.', statusCode: 409 as const };
+      }
+
+      const failure = getApplicationDecisionFailure(
+        application.status,
+        nextStatus,
+        application.documents,
+      );
+      if (failure === 'documents_not_verified') {
+        return {
+          error: 'Verify all required documents before recommending or approving this application.',
+          statusCode: 422 as const,
+          validationErrors: getMissingVerifiedDocumentTypes(application.documents),
+        };
+      }
+      if (failure) {
         return { error: "This decision is not allowed from the application's current status.", statusCode: 409 as const };
       }
 
       const update = await transaction.scholarshipApplication.updateMany({
-        where: { id: application.id, status: application.status },
-        data: { status: nextStatus },
+        where: {
+          id: application.id,
+          status: application.status,
+          aiVerificationStatus: 'ELIGIBLE',
+          submittedAt: { not: null },
+        },
+        data: {
+          status: nextStatus,
+          manualReviewStatus:
+            nextStatus === ApplicationStatus.RECOMMENDED_FOR_APPROVAL
+              ? 'VERIFIED'
+              : nextStatus === ApplicationStatus.REJECTED_BY_OFFICER
+                ? 'REJECTED'
+                : nextStatus === ApplicationStatus.FLAGGED_FOR_MANUAL_REVIEW
+                  ? 'NEEDS_ATTENTION'
+                  : 'IN_PROGRESS',
+        },
       });
       if (update.count !== 1) {
         return { error: 'The application changed during review. Reload and try again.', statusCode: 409 as const };
@@ -91,13 +113,27 @@ export async function PATCH(request: Request, { params }: RouteContext) {
         },
       });
       return { status: nextStatus };
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     if ('error' in result) {
-      return NextResponse.json({ error: result.error }, { status: result.statusCode });
+      return NextResponse.json(
+        { error: result.error, ...('validationErrors' in result ? { validationErrors: result.validationErrors } : {}) },
+        { status: result.statusCode },
+      );
     }
     return NextResponse.json({ status: result.status });
   } catch (error) {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      error.code === 'P2034'
+    ) {
+      return NextResponse.json(
+        { error: 'The application changed during review. Reload and try again.' },
+        { status: 409 },
+      );
+    }
     console.error('Admin application decision failed:', error instanceof Error ? error.name : 'Unknown error');
     return NextResponse.json({ error: 'Unable to save the application decision.' }, { status: 500 });
   }

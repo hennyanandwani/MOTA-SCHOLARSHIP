@@ -83,14 +83,38 @@ export async function POST(
       where: {
         id: applicationId,
         studentId: user.student.id,
-        status: ApplicationStatus.DRAFT,
+        status: { in: [ApplicationStatus.DRAFT, ApplicationStatus.SUBMITTED] },
       },
-      select: { id: true },
+      select: {
+        id: true,
+        status: true,
+        aiVerificationStatus: true,
+        aiAttemptCount: true,
+        aiInputVersion: true,
+        aiVerificationJobs: {
+          orderBy: { inputVersion: "desc" },
+          take: 1,
+          select: { inputVersion: true, status: true, outcome: true },
+        },
+      },
     });
 
-    if (!application) {
+    const latestJob = application?.aiVerificationJobs[0];
+    const isCorrectionAllowed = Boolean(
+      application?.status === ApplicationStatus.SUBMITTED &&
+      application.aiVerificationStatus === "INELIGIBLE" &&
+      application.aiAttemptCount >= 1 &&
+      application.aiAttemptCount <= 3 &&
+      latestJob?.inputVersion === application.aiInputVersion &&
+      latestJob.status === "COMPLETED" &&
+      latestJob.outcome === "INELIGIBLE",
+    );
+    if (!application || (
+      application.status !== ApplicationStatus.DRAFT &&
+      !isCorrectionAllowed
+    )) {
       return NextResponse.json(
-        { error: "Draft application not found" },
+        { error: "Application is not open for document uploads." },
         { status: 404 }
       );
     }
@@ -175,12 +199,23 @@ export async function POST(
     const documentType = allowedTypes[rawType];
     const metadataResult = await prisma.$transaction(async (tx) => {
       const draftLock = await tx.scholarshipApplication.updateMany({
-        where: {
-          id: application.id,
-          studentId: user.student.id,
-          status: ApplicationStatus.DRAFT,
-        },
-        data: { status: ApplicationStatus.DRAFT },
+        where: application.status === ApplicationStatus.DRAFT
+          ? {
+              id: application.id,
+              studentId: user.student.id,
+              status: ApplicationStatus.DRAFT,
+            }
+          : {
+              id: application.id,
+              studentId: user.student.id,
+              status: ApplicationStatus.SUBMITTED,
+              aiVerificationStatus: "INELIGIBLE",
+              aiAttemptCount: application.aiAttemptCount,
+              aiInputVersion: application.aiInputVersion,
+            },
+        data: application.status === ApplicationStatus.DRAFT
+          ? { status: ApplicationStatus.DRAFT }
+          : { updatedAt: new Date() },
       });
 
       if (draftLock.count !== 1) {

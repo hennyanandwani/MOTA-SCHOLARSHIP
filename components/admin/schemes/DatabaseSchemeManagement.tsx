@@ -7,6 +7,7 @@ import {
   type PersistedSchemeType,
   type SchemeRecord,
 } from "@/lib/scholarshipSchemeValidation";
+import { ScholarshipPolicyDisclosure } from "@/components/admin/schemes/ScholarshipPolicyManagement";
 
 type SchemePayload = {
   error?: string;
@@ -208,23 +209,26 @@ export function DatabaseSchemeManagement() {
         ) : (
           <ul className="divide-y divide-[#EEF1F5]">
             {schemes.map((scheme) => (
-              <li key={scheme.id} className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <h3 className="break-words text-sm font-semibold text-[#172033]">{scheme.name}</h3>
-                  <p className="mt-1 text-xs text-[#64748B]">
-                    {scheme.type === "SCHOLARSHIP" ? "Scholarship" : "Fellowship"}
-                    {" · "}{scheme.isActive ? "Active" : "Inactive"}
-                  </p>
-                  {scheme.description && <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-[#475569]">{scheme.description}</p>}
+              <li key={scheme.id} className="px-5 py-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <h3 className="break-words text-sm font-semibold text-[#172033]">{scheme.name}</h3>
+                    <p className="mt-1 text-xs text-[#64748B]">
+                      {scheme.type === "SCHOLARSHIP" ? "Scholarship" : "Fellowship"}
+                      {" · "}{scheme.isActive ? "Active" : "Inactive"}
+                    </p>
+                    {scheme.description && <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-[#475569]">{scheme.description}</p>}
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <button type="button" onClick={() => beginEdit(scheme)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[#DCE3EC] px-3 text-xs font-semibold text-[#334155]">
+                      <Edit3 size={14} aria-hidden="true" /> Edit
+                    </button>
+                    <button type="button" onClick={() => void toggleActive(scheme)} className="min-h-9 rounded-lg border border-[#DCE3EC] px-3 text-xs font-semibold text-[#334155]">
+                      {scheme.isActive ? "Deactivate" : "Activate"}
+                    </button>
+                  </div>
                 </div>
-                <div className="flex shrink-0 gap-2">
-                  <button type="button" onClick={() => beginEdit(scheme)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[#DCE3EC] px-3 text-xs font-semibold text-[#334155]">
-                    <Edit3 size={14} aria-hidden="true" /> Edit
-                  </button>
-                  <button type="button" onClick={() => void toggleActive(scheme)} className="min-h-9 rounded-lg border border-[#DCE3EC] px-3 text-xs font-semibold text-[#334155]">
-                    {scheme.isActive ? "Deactivate" : "Activate"}
-                  </button>
-                </div>
+                <ScholarshipPolicyDisclosure schemeId={scheme.id} schemeName={scheme.name} />
               </li>
             ))}
           </ul>

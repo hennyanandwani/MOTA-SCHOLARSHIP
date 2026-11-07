@@ -58,6 +58,7 @@ const statusStyles: Record<string, string> = {
   RECOMMENDED_FOR_APPROVAL: 'bg-sky-50 text-sky-700 ring-sky-200',
   APPROVED_BY_OFFICER: 'bg-emerald-50 text-[#126747] ring-emerald-200',
   REJECTED_BY_OFFICER: 'bg-rose-50 text-[#A8323D] ring-rose-200',
+  REJECTED_BY_AI: 'bg-rose-50 text-[#A8323D] ring-rose-200',
 };
 
 const statusIcons: Record<string, LucideIcon> = {
@@ -68,6 +69,7 @@ const statusIcons: Record<string, LucideIcon> = {
   RECOMMENDED_FOR_APPROVAL: Clock3,
   APPROVED_BY_OFFICER: CheckCircle2,
   REJECTED_BY_OFFICER: AlertCircle,
+  REJECTED_BY_AI: AlertCircle,
 };
 
 const statusLabels: Record<string, string> = {
@@ -78,6 +80,7 @@ const statusLabels: Record<string, string> = {
   RECOMMENDED_FOR_APPROVAL: 'Recommended for approval',
   APPROVED_BY_OFFICER: 'Approved',
   REJECTED_BY_OFFICER: 'Rejected',
+  REJECTED_BY_AI: 'Rejected after AI eligibility checks',
 };
 
 function hasDocumentAction(application: StudentApplicationRecord): boolean {
@@ -115,6 +118,7 @@ function stageFor(status: string): string {
     case 'RECOMMENDED_FOR_APPROVAL': return 'Awaiting officer decision';
     case 'APPROVED_BY_OFFICER': return 'Approved';
     case 'REJECTED_BY_OFFICER': return 'Rejected';
+    case 'REJECTED_BY_AI': return 'AI eligibility review';
     default: return 'Status unavailable';
   }
 }
@@ -283,12 +287,14 @@ export function ApplicationManager() {
   ).length;
   const completedCount = allApplications.filter((application) =>
     application.status === 'APPROVED_BY_OFFICER' ||
-    application.status === 'REJECTED_BY_OFFICER',
+    application.status === 'REJECTED_BY_OFFICER' ||
+    application.status === 'REJECTED_BY_AI'
   ).length;
   const inProgressCount = allApplications.filter((application) =>
     application.status !== 'DRAFT' &&
     application.status !== 'APPROVED_BY_OFFICER' &&
-    application.status !== 'REJECTED_BY_OFFICER',
+    application.status !== 'REJECTED_BY_OFFICER' &&
+    application.status !== 'REJECTED_BY_AI'
   ).length;
 
   function clearFilters() {

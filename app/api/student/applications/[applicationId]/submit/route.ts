@@ -2,12 +2,14 @@ import { NextResponse } from "next/server";
 import { ApplicationStatus } from "@/lib/generated/prisma/client";
 import { requireStudent } from "@/lib/studentAuth";
 import { prisma } from "@/lib/prisma";
+import { buildAiJobIdempotencyKey } from "@/lib/aiVerificationContract";
+import { buildAiVerificationJobPolicyData } from "@/lib/scholarshipVerificationPolicy";
 import {
   applicationDocumentLabels,
   requiredApplicationDocumentTypes,
 } from "@/lib/applicationRequirements";
-import { getDraftLockFailure } from "@/lib/applicationConcurrency";
 import {
+  canResubmitAfterAiRejection,
   getSubmissionFailureStatus,
   getSubmissionValidationFailure,
   SubmissionTransactionAbort,
@@ -44,40 +46,22 @@ export async function POST(
     let result: SubmissionResult;
     try {
       result = await prisma.$transaction(async (tx) => {
-        const draftLock = await tx.scholarshipApplication.updateMany({
-          where: {
-            id: applicationId,
-            studentId,
-            status: ApplicationStatus.DRAFT,
-          },
-          data: { status: ApplicationStatus.DRAFT },
-        });
-
-        if (draftLock.count !== 1) {
-          const current = await tx.scholarshipApplication.findFirst({
-            where: { id: applicationId, studentId },
-            select: { status: true },
-          });
-          return {
-            kind:
-              getDraftLockFailure(current?.status ?? null) === "not_found"
-                ? "not_found"
-                : "not_draft",
-          };
-        }
-
         const application = await tx.scholarshipApplication.findFirst({
           where: {
             id: applicationId,
             studentId,
-            status: ApplicationStatus.DRAFT,
+            status: { in: [ApplicationStatus.DRAFT, ApplicationStatus.SUBMITTED] },
           },
           select: {
             id: true,
+            schemeId: true,
             applicationNumber: true,
             status: true,
             currentStep: true,
             formData: true,
+            aiVerificationStatus: true,
+            aiAttemptCount: true,
+            aiInputVersion: true,
             informationConfirmed: true,
             verificationAcknowledged: true,
             eligibilityNotGuaranteed: true,
@@ -88,16 +72,72 @@ export async function POST(
               select: {
                 type: true,
                 verificationStatus: true,
+                updatedAt: true,
+              },
+            },
+            aiVerificationJobs: {
+              orderBy: { inputVersion: "desc" },
+              take: 1,
+              select: {
+                inputVersion: true,
+                status: true,
+                outcome: true,
+                completedAt: true,
               },
             },
           },
         });
-
         if (!application) {
-          throw new SubmissionTransactionAbort({ kind: "not_found" });
+          return { kind: "not_found" as const };
         }
-        if (application.status !== ApplicationStatus.DRAFT) {
-          throw new SubmissionTransactionAbort({ kind: "not_draft" });
+
+        const isCorrectionResubmission =
+          application.status === ApplicationStatus.SUBMITTED;
+        if (isCorrectionResubmission) {
+          const latestJob = application.aiVerificationJobs[0] ?? null;
+          const correctedDocumentUpdatedAt = latestJob?.completedAt
+            ? application.documents
+                .map((document) => document.updatedAt)
+                .filter((updatedAt) => updatedAt > latestJob.completedAt!)
+                .sort((left, right) => right.getTime() - left.getTime())[0] ?? null
+            : null;
+          if (!canResubmitAfterAiRejection({
+            applicationStatus: application.status,
+            aiVerificationStatus: application.aiVerificationStatus,
+            aiAttemptCount: application.aiAttemptCount,
+            aiInputVersion: application.aiInputVersion,
+            latestJob,
+            correctedDocumentUpdatedAt,
+          })) {
+            return { kind: "not_draft" as const };
+          }
+
+          const correctionLock = await tx.scholarshipApplication.updateMany({
+            where: {
+              id: application.id,
+              studentId,
+              status: ApplicationStatus.SUBMITTED,
+              aiVerificationStatus: "INELIGIBLE",
+              aiAttemptCount: application.aiAttemptCount,
+              aiInputVersion: application.aiInputVersion,
+            },
+            data: { updatedAt: new Date() },
+          });
+          if (correctionLock.count !== 1) {
+            return { kind: "not_draft" as const };
+          }
+        } else {
+          const draftLock = await tx.scholarshipApplication.updateMany({
+            where: {
+              id: application.id,
+              studentId,
+              status: ApplicationStatus.DRAFT,
+            },
+            data: { status: ApplicationStatus.DRAFT },
+          });
+          if (draftLock.count !== 1) {
+            return { kind: "not_draft" as const };
+          }
         }
 
         const validationFailure = getSubmissionValidationFailure({
@@ -119,22 +159,72 @@ export async function POST(
           throw new SubmissionTransactionAbort(validationFailure);
         }
 
-        const update = await tx.scholarshipApplication.updateMany({
-          where: {
-            id: application.id,
-            studentId,
-            status: ApplicationStatus.DRAFT,
-            scheme: { is: { isActive: true } },
+        const publishedPolicy = await tx.scholarshipVerificationPolicy.findFirst({
+          where: { schemeId: application.schemeId, status: "PUBLISHED" },
+          orderBy: { version: "desc" },
+          select: {
+            id: true,
+            schemeId: true,
+            version: true,
+            status: true,
+            eligibilityCriteria: true,
+            requiredDocumentTypes: true,
+            aiEligibleDocumentTypes: true,
+            officialGuidelineReference: true,
+            guidelineRevision: true,
+            publishedById: true,
+            publishedAt: true,
           },
+        });
+        const policyJobData = buildAiVerificationJobPolicyData(publishedPolicy);
+
+        const nextVersion = application.aiInputVersion + 1;
+        const update = await tx.scholarshipApplication.updateMany({
+          where: isCorrectionResubmission
+            ? {
+                id: application.id,
+                studentId,
+                status: ApplicationStatus.SUBMITTED,
+                aiVerificationStatus: "INELIGIBLE",
+                aiAttemptCount: application.aiAttemptCount,
+                aiInputVersion: application.aiInputVersion,
+              }
+            : {
+                id: application.id,
+                studentId,
+                status: ApplicationStatus.DRAFT,
+                scheme: { is: { isActive: true } },
+              },
           data: {
             status: ApplicationStatus.SUBMITTED,
-            submittedAt: new Date(),
+            ...(!isCorrectionResubmission ? { submittedAt: new Date(), aiAttemptCount: 0 } : {}),
+            aiVerificationStatus: "WAITING_FOR_CONFIGURATION",
+            aiEligibility: null,
+            aiExplanation: null,
+            studentAiReason: null,
+            aiModelVersion: null,
+            aiCompletedAt: null,
+            aiInputVersion: nextVersion,
+            manualReviewStatus: "NOT_READY",
           },
         });
 
         if (update.count !== 1) {
           throw new SubmissionTransactionAbort({ kind: "not_draft" });
         }
+
+        await tx.aiVerificationJob.create({
+          data: {
+            applicationId: application.id,
+            inputVersion: nextVersion,
+            idempotencyKey: buildAiJobIdempotencyKey(application.id, nextVersion),
+            requestReason: isCorrectionResubmission
+              ? `Student correction after ${application.aiAttemptCount} AI ineligibility result(s)`
+              : "Initial submission",
+            status: "WAITING_FOR_CONFIGURATION",
+            ...policyJobData,
+          },
+        });
 
         const submitted = await tx.scholarshipApplication.findUniqueOrThrow({
           where: { id: application.id },
@@ -161,7 +251,7 @@ export async function POST(
         );
       case "not_draft":
         return NextResponse.json(
-          { error: "Only a draft application can be submitted" },
+          { error: "Submit a draft or upload a corrected document after an eligible AI ineligibility result." },
           { status: getSubmissionFailureStatus(result.kind) },
         );
       case "inactive_scheme":

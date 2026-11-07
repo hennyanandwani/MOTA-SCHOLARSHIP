@@ -1,491 +1,173 @@
-"use client";
-
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, RefreshCw } from "lucide-react";
-
-import { Sidebar } from "@/components/layout/Sidebar";
-import { Topbar } from "@/components/layout/Topbar";
-import { adminNavigation } from "@/lib/navigation";
-
+import Link from 'next/link';
+import { AlertTriangle, CheckCircle2, FileSearch, ShieldCheck } from 'lucide-react';
+import { Sidebar } from '@/components/layout/Sidebar';
+import { Topbar } from '@/components/layout/Topbar';
+import { adminNavigation } from '@/lib/navigation';
+import { getAdminApplicationSummaries } from '@/lib/adminApplicationData';
 import {
-  getInitialVerificationRecords,
-  LOCALSTORAGE_VERIFICATION_KEY,
-  saveVerificationRecordsToLocalStorage,
-} from "@/lib/adminVerificationData";
+  isAiOutcomeAvailableForManualReview,
+  isApplicationSubmitted,
+} from '@/lib/adminWorkflow';
 
-import { VerificationStats } from "@/components/admin/verification/VerificationStats";
-import {
-  VerificationFilters,
-  type VerificationFilterState,
-} from "@/components/admin/verification/VerificationFilters";
-import { VerificationQueue } from "@/components/admin/verification/VerificationQueue";
-import { VerificationCard } from "@/components/admin/verification/VerificationCard";
-import { VerificationInspector } from "@/components/admin/verification/VerificationInspector";
+export const metadata = {
+  title: 'Document Verification | MoTA Administration',
+  description: 'Review persisted application document verification statuses.',
+};
 
-import type { VerificationRecord } from "@/lib/adminVerificationData";
-
-export default function VerificationPage() {
-  const [records, setRecords] = useState<VerificationRecord[]>([]);
-  const [selectedRecord, setSelectedRecord] =
-    useState<VerificationRecord | null>(null);
-  const [inspectorOpen, setInspectorOpen] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-
-  const [filters, setFilters] = useState<VerificationFilterState>({
-    searchQuery: "",
-    verificationStatus: "all",
-    aiMatch: "all",
-    documentType: "",
-    schemeId: "",
-    state: "",
-    priority: "all",
-    sortBy: "newest",
-  });
-
-  // Load records from localStorage
-  useEffect(() => {
-    const searchValue = new URLSearchParams(window.location.search).get("searchQuery");
-    if (searchValue) setFilters((current) => ({ ...current, searchQuery: searchValue }));
-
-    const stored = localStorage.getItem(
-      LOCALSTORAGE_VERIFICATION_KEY
+export default async function AdminVerificationPage() {
+  let applications: Awaited<ReturnType<typeof getAdminApplicationSummaries>> = [];
+  let loadError = false;
+  try {
+    applications = await getAdminApplicationSummaries();
+  } catch (error) {
+    loadError = true;
+    console.error(
+      'Admin verification queue failed to load:',
+      error instanceof Error ? error.name : 'Unknown error',
     );
+  }
 
-    if (stored) {
-      try {
-        setRecords(JSON.parse(stored));
-      } catch {
-        setRecords(getInitialVerificationRecords());
-      }
-    } else {
-      setRecords(getInitialVerificationRecords());
-    }
-  }, []);
-
-  // Filter and sort records
-  const filteredRecords = useMemo(() => {
-    let result = [...records];
-
-    // Search
-    if (filters.searchQuery.trim()) {
-      const q = filters.searchQuery.toLowerCase();
-
-      result = result.filter(
-        (r) =>
-          r.applicationId.toLowerCase().includes(q) ||
-          r.applicantName.toLowerCase().includes(q) ||
-          r.documentName.toLowerCase().includes(q) ||
-          r.schemeName.toLowerCase().includes(q)
-      );
-    }
-
-    // Verification status
-    if (filters.verificationStatus !== "all") {
-      result = result.filter(
-        (r) =>
-          r.verificationStatus ===
-          filters.verificationStatus
-      );
-    }
-
-    // AI match
-    if (filters.aiMatch !== "all") {
-      result = result.filter(
-        (r) => r.aiMatch === filters.aiMatch
-      );
-    }
-
-    // Document type
-    if (filters.documentType) {
-      result = result.filter(
-        (r) => r.documentType === filters.documentType
-      );
-    }
-
-    // Scheme
-    if (filters.schemeId) {
-      result = result.filter(
-        (r) => r.schemeId === filters.schemeId
-      );
-    }
-
-    // State
-    if (filters.state) {
-      result = result.filter(
-        (r) => r.state === filters.state
-      );
-    }
-
-    // Priority
-    if (filters.priority !== "all") {
-      result = result.filter(
-        (r) => r.priority === filters.priority
-      );
-    }
-
-    // Sorting
-    if (filters.sortBy === "newest") {
-      result.sort(
-        (a, b) =>
-          new Date(b.uploadedAt).getTime() -
-          new Date(a.uploadedAt).getTime()
-      );
-    } else if (filters.sortBy === "oldest") {
-      result.sort(
-        (a, b) =>
-          new Date(a.uploadedAt).getTime() -
-          new Date(b.uploadedAt).getTime()
-      );
-    } else if (filters.sortBy === "priority-high") {
-      const priorityOrder = {
-        High: 0,
-        Medium: 1,
-        Low: 2,
-      };
-
-      result.sort(
-        (a, b) =>
-          priorityOrder[a.priority] -
-          priorityOrder[b.priority]
-      );
-    } else if (filters.sortBy === "priority-low") {
-      const priorityOrder = {
-        High: 2,
-        Medium: 1,
-        Low: 0,
-      };
-
-      result.sort(
-        (a, b) =>
-          priorityOrder[a.priority] -
-          priorityOrder[b.priority]
-      );
-    }
-
-    return result;
-  }, [records, filters]);
-
-  const handleFilterChange = <
-    K extends keyof VerificationFilterState
-  >(
-    key: K,
-    value: VerificationFilterState[K]
-  ) => {
-    setFilters((prev) => ({
-      ...prev,
-      [key]: value,
-    }));
-  };
-
-  const handleClearFilters = () => {
-    setFilters({
-      searchQuery: "",
-      verificationStatus: "all",
-      aiMatch: "all",
-      documentType: "",
-      schemeId: "",
-      state: "",
-      priority: "all",
-      sortBy: "newest",
-    });
-  };
-
-  const handleSelectRecord = (
-    record: VerificationRecord
-  ) => {
-    setSelectedRecord(record);
-    setInspectorOpen(true);
-  };
-
-  const handleCloseInspector = useCallback(() => {
-    setInspectorOpen(false);
-    setSelectedRecord(null);
-  }, []);
-
-  const handleDecisionChange = (
-    decision: VerificationRecord["reviewerDecision"],
-    note?: string,
-    reason?: string
-  ) => {
-    if (!selectedRecord) return;
-
-    const updatedRecord: VerificationRecord = {
-      ...selectedRecord,
-
-      verificationStatus:
-        decision === "Verify Document"
-          ? "Verified"
-          : decision === "Reject Document"
-            ? "Rejected"
-            : "Under Review",
-
-      reviewerDecision: decision,
-      reviewerNote: note,
-      rejectionReason: reason,
-      decisionDate: new Date().toLocaleString(),
-      reviewer: "MoTA Administrator",
-
-      activities: [
-        ...selectedRecord.activities,
-        {
-          id: `A${Date.now()}`,
-          timestamp: new Date().toLocaleTimeString(),
-          action: `Official decision recorded: ${decision}`,
-          actor: "MoTA Administrator",
-          type: "reviewer",
-        },
-      ],
-    };
-
-    const updatedRecords = records.map((record) =>
-      record.id === selectedRecord.id
-        ? updatedRecord
-        : record
-    );
-
-    setRecords(updatedRecords);
-
-    saveVerificationRecordsToLocalStorage(
-      updatedRecords
-    );
-
-    setSelectedRecord(updatedRecord);
-
-    alert(
-      "Demo verification decision recorded locally."
-    );
-
-    handleCloseInspector();
-  };
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-
-    await new Promise((resolve) =>
-      setTimeout(resolve, 1000)
-    );
-
-    setRefreshing(false);
-  };
-
-  const handleExportCSV = () => {
-    const headers = [
-      "Application ID",
-      "Applicant Name",
-      "Scheme",
-      "Document",
-      "Priority",
-      "OCR Status",
-      "AI Match",
-      "Verification Status",
-      "Reviewer",
-      "Uploaded Date",
-    ];
-
-    const rows = filteredRecords.map((r) => [
-      r.applicationId,
-      r.applicantName,
-      r.schemeName,
-      r.documentName,
-      r.priority,
-      r.ocrStatus,
-      r.aiMatch,
-      r.verificationStatus,
-      r.reviewer === "Unassigned"
-        ? "—"
-        : r.reviewer,
-      r.uploadedAt,
-    ]);
-
-    const escapeCSV = (value: unknown) => {
-      const text = String(value ?? "");
-
-      if (
-        text.includes(",") ||
-        text.includes('"') ||
-        text.includes("\n")
-      ) {
-        return `"${text.replace(/"/g, '""')}"`;
-      }
-
-      return text;
-    };
-
-    const csvContent = [
-      headers.map(escapeCSV).join(","),
-      ...rows.map((row) =>
-        row.map(escapeCSV).join(",")
-      ),
-    ].join("\n");
-
-    const blob = new Blob([csvContent], {
-      type: "text/csv;charset=utf-8;",
-    });
-
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-
-    link.href = url;
-    link.download = `verification-queue-${new Date()
-      .toISOString()
-      .split("T")[0]}.csv`;
-
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    URL.revokeObjectURL(url);
-  };
+  const queue = applications.filter((application) =>
+    isApplicationSubmitted(application.status, application.submittedAt) &&
+    isAiOutcomeAvailableForManualReview(
+      application.aiVerificationStatus ?? '',
+      application.aiAttemptCount ?? 0,
+    ) &&
+    ['PENDING', 'IN_PROGRESS', 'NEEDS_ATTENTION'].includes(
+      application.manualReviewStatus ?? '',
+    ) &&
+    application.status !== 'APPROVED_BY_OFFICER' &&
+    application.status !== 'REJECTED_BY_OFFICER',
+  );
+  const pendingCount = queue.reduce((total, application) => total + (application.pendingDocsCount ?? 0), 0);
+  const flaggedCount = queue.reduce((total, application) => total + (application.flaggedDocsCount ?? 0), 0);
+  const manualQueueIds = new Set(queue.map((application) => application.applicationId));
+  const exceptions = applications.filter((application) =>
+    !manualQueueIds.has(application.applicationId) &&
+    (application.aiVerificationStatus === 'INELIGIBLE' &&
+      !isAiOutcomeAvailableForManualReview(
+        application.aiVerificationStatus,
+        application.aiAttemptCount ?? 0,
+      )) ||
+    application.aiVerificationStatus === 'FAILED' ||
+    application.aiVerificationStatus === 'NEEDS_ATTENTION' ||
+    application.aiVerificationStatus === 'WAITING_FOR_CONFIGURATION' ||
+    application.aiVerificationStatus === 'QUEUED' ||
+    application.aiVerificationStatus === 'IN_PROGRESS',
+  );
 
   return (
     <div className="min-h-screen bg-[#F6F8FB]">
-      <Topbar
-        role="MoTA Administration"
-        context="admin"
-      />
-
-      <Sidebar
-        items={adminNavigation}
-        title="Administration"
-        context="admin"
-      />
-
+      <Topbar title="Document Verification" subtitle="Review persisted application documents" role="MoTA Administration" context="admin" />
+      <Sidebar items={adminNavigation} title="Administration" context="admin" />
       <main className="min-w-0 p-4 sm:p-5 lg:ml-64 lg:p-8">
         <div className="mx-auto max-w-7xl space-y-6">
+          <header>
+            <p className="text-xs font-semibold uppercase tracking-wide text-[#2563A8]">Administration / Verification</p>
+            <h1 className="mt-1 text-2xl font-bold text-[#172033]">Document verification queue</h1>
+            <p className="mt-1 text-sm text-[#64748B]">Only submitted applications and persisted document statuses are shown. Open an application to securely review documents and record verification.</p>
+          </header>
 
-          {/* Header */}
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div className="space-y-2">
-              <nav
-                className="flex items-center gap-2 text-xs text-[#64748B]"
-                aria-label="Breadcrumb"
-              >
-                <span>Administration</span>
-                <span>/</span>
-                <span className="font-medium text-[#172033]">
-                  Verification Queue
-                </span>
-              </nav>
+          {loadError ? (
+            <section role="alert" className="rounded-xl border border-rose-200 bg-white p-5 text-sm text-rose-800">
+              Verification records could not be loaded. <Link href="/admin/verification" className="font-semibold underline">Try again</Link>
+            </section>
+          ) : (
+            <>
+              <section aria-label="Verification summary" className="grid gap-3 sm:grid-cols-3">
+                <article className="rounded-xl border border-[#DCE3EC] bg-white p-4">
+                  <p className="text-xs text-[#64748B]">Applications needing review</p>
+                  <p className="mt-1 text-2xl font-bold text-[#172033]">{queue.length}</p>
+                </article>
+                <article className="rounded-xl border border-[#DCE3EC] bg-white p-4">
+                  <p className="flex items-center gap-2 text-xs text-[#64748B]"><FileSearch size={14} /> Documents pending</p>
+                  <p className="mt-1 text-2xl font-bold text-[#173F7A]">{pendingCount}</p>
+                </article>
+                <article className="rounded-xl border border-[#DCE3EC] bg-white p-4">
+                  <p className="flex items-center gap-2 text-xs text-[#64748B]"><AlertTriangle size={14} /> Flagged or rejected</p>
+                  <p className="mt-1 text-2xl font-bold text-rose-700">{flaggedCount}</p>
+                </article>
+              </section>
 
-              <div>
-                <h1 className="text-2xl font-bold text-[#172033]">
-                  Document Verification &amp; Evidence Desk
-                </h1>
-
-                <p className="mt-1 text-sm text-[#64748B]">
-                  Review uploaded documents, inspect AI-assisted
-                  extraction results, identify discrepancies, and
-                  record official verification decisions.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={handleRefresh}
-                disabled={refreshing}
-                className="inline-flex items-center gap-2 rounded-lg border border-[#DCE3EC] bg-white px-4 py-2 text-sm font-semibold text-[#475569] shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
-              >
-                <RefreshCw
-                  size={16}
-                  className={
-                    refreshing
-                      ? "animate-spin"
-                      : ""
-                  }
-                />
-
-                <span>Refresh Queue</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleExportCSV}
-                className="inline-flex items-center gap-2 rounded-lg bg-[#173F7A] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#123362]"
-              >
-                <Download size={16} />
-                <span>Export Queue</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Stats */}
-          <VerificationStats records={records} />
-
-          {/* Filters */}
-          <VerificationFilters
-            filters={filters}
-            onFilterChange={handleFilterChange}
-            onClear={handleClearFilters}
-            filteredCount={filteredRecords.length}
-            totalCount={records.length}
-            records={records}
-          />
-
-          {/* Desktop Queue */}
-          <VerificationQueue
-            records={filteredRecords}
-            onSelect={handleSelectRecord}
-            onClearFilters={handleClearFilters}
-          />
-
-          {/* Mobile Cards */}
-          <div className="grid gap-3 sm:gap-4 lg:hidden">
-            {filteredRecords.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-xl border border-[#DCE3EC] bg-white p-12 text-center">
-                <p className="text-base font-semibold text-[#172033]">
-                  No documents found
-                </p>
-
-                <p className="mt-1 text-sm text-[#64748B]">
-                  Try adjusting your search or verification
-                  filters.
-                </p>
-
-                <button
-                  type="button"
-                  onClick={handleClearFilters}
-                  className="mt-4 rounded-lg bg-[#173F7A] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#123362]"
-                >
-                  Clear Filters
-                </button>
-              </div>
-            ) : (
-              filteredRecords.map((record) => (
-                <VerificationCard
-                  key={record.id}
-                  record={record}
-                  onSelect={handleSelectRecord}
-                />
-              ))
-            )}
-          </div>
-
-          {/* Demo Notice */}
-          <footer className="mt-8 border-t border-[#DCE3EC] pt-4">
-            <div className="flex flex-col gap-2 rounded-lg border border-[#DCE3EC] bg-white p-3.5 text-[11px] text-[#64748B]">
-              <span>
-                <strong className="font-semibold text-[#172033]">
-                  Demo Simulation Notice:
-                </strong>{" "}
-                This is a prototype implementation for SIH
-                2026 evaluation. All verification data, OCR
-                results, and DigiLocker integration are simulated
-                for demonstration purposes.
-              </span>
-            </div>
-          </footer>
+              {queue.length === 0 ? (
+                <section className="rounded-xl border border-[#DCE3EC] bg-white p-8 text-center">
+                  <CheckCircle2 className="mx-auto text-emerald-700" size={24} aria-hidden="true" />
+                  <h2 className="mt-3 font-semibold text-[#172033]">No persisted documents need review</h2>
+                  <p className="mt-1 text-sm text-[#64748B]">Drafts are excluded. This queue does not generate verification results.</p>
+                </section>
+              ) : (
+                <section className="overflow-hidden rounded-xl border border-[#DCE3EC] bg-white">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-[#F8FAFC] text-xs uppercase text-[#64748B]">
+                        <tr>
+                          <th className="px-4 py-3">Application</th>
+                          <th className="px-4 py-3">Applicant</th>
+                          <th className="px-4 py-3">Scheme / year</th>
+                          <th className="px-4 py-3">Pending</th>
+                          <th className="px-4 py-3">Flagged / rejected</th>
+                          <th className="px-4 py-3">Status</th>
+                          <th className="px-4 py-3">Review</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#EEF1F5]">
+                        {queue.map((application) => (
+                          <tr key={application.applicationId}>
+                            <td className="px-4 py-3 font-mono text-xs">{application.applicationId}</td>
+                            <td className="px-4 py-3">{application.applicantName}<span className="block text-xs text-[#64748B]">Roll: {application.rollNumber ?? 'Not provided'}</span></td>
+                            <td className="px-4 py-3">{application.schemeName}<span className="block text-xs text-[#64748B]">{application.academicYear}</span></td>
+                            <td className="px-4 py-3">{application.pendingDocsCount ?? 0}</td>
+                            <td className="px-4 py-3">{application.flaggedDocsCount ?? 0}</td>
+                            <td className="px-4 py-3">{application.status}</td>
+                            <td className="px-4 py-3">
+                              <Link className="inline-flex items-center gap-1 font-semibold text-[#173F7A] hover:underline" href={`/admin/applications?searchQuery=${encodeURIComponent(application.applicationId)}`}>
+                                <ShieldCheck size={14} /> Open review
+                              </Link>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              )}
+              {exceptions.length > 0 && (
+                <section aria-labelledby="ai-exceptions-heading" className="overflow-hidden rounded-xl border border-amber-200 bg-white">
+                  <div className="border-b border-amber-100 bg-amber-50 p-4">
+                    <h2 id="ai-exceptions-heading" className="font-semibold text-amber-950">AI outcomes and service exceptions</h2>
+                    <p className="mt-1 text-xs text-amber-900">These records are not in the manual-verification queue. Failed or unavailable AI checks are not interpreted as ineligibility.</p>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-[#F8FAFC] text-xs uppercase text-[#64748B]">
+                        <tr>
+                          <th className="px-4 py-3">Application</th>
+                          <th className="px-4 py-3">Applicant</th>
+                          <th className="px-4 py-3">AI state</th>
+                          <th className="px-4 py-3">Application state</th>
+                          <th className="px-4 py-3">Review</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#EEF1F5]">
+                        {exceptions.map((application) => (
+                          <tr key={application.applicationId}>
+                            <td className="px-4 py-3 font-mono text-xs">{application.applicationId}</td>
+                            <td className="px-4 py-3">{application.applicantName}<span className="block text-xs text-[#64748B]">Roll: {application.rollNumber ?? 'Not provided'}</span></td>
+                            <td className="px-4 py-3">{application.aiVerificationStatus}</td>
+                            <td className="px-4 py-3">{application.status}</td>
+                            <td className="px-4 py-3"><Link className="font-semibold text-[#173F7A] hover:underline" href={`/admin/applications?searchQuery=${encodeURIComponent(application.applicationId)}`}>Open record</Link></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              )}
+              {applications.length === 500 && <p className="text-xs text-[#64748B]">Showing the 500 most recently updated application records.</p>}
+            </>
+          )}
         </div>
       </main>
-
-      {/* Inspector */}
-      <VerificationInspector
-        record={selectedRecord}
-        onClose={handleCloseInspector}
-        onDecisionChange={handleDecisionChange}
-        isOpen={inspectorOpen}
-      />
     </div>
   );
 }

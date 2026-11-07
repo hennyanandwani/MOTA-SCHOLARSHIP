@@ -14,7 +14,7 @@ export function assertDatabaseUrlConfigured(): string {
 const createPrismaClient = () => {
   const adapter = new PrismaPg({
     connectionString: process.env.DATABASE_URL!,
-    max: 1,
+    max: 5,
     connectionTimeoutMillis: 5000,
     idleTimeoutMillis: 10000,
   });
