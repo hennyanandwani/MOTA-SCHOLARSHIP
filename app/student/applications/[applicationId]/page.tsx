@@ -4,11 +4,18 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { Topbar } from '@/components/layout/Topbar';
 import { getCurrentAppUser } from '@/lib/auth/current-user';
 import { getOwnedApplicationScope } from '@/lib/applicationConcurrency';
-import { applicationDocumentLabels, requiredApplicationDocumentTypes } from '@/lib/applicationRequirements';
+import {
+  getEffectiveRequiredDocumentTypes,
+  getApplicationDocumentLabel,
+  getRequiredDocumentTypesFromPolicySnapshot,
+} from '@/lib/applicationRequirements';
 import { studentNavigation } from '@/lib/navigation';
 import { prisma } from '@/lib/prisma';
-import { getStudentAiReason, getStudentAiStatusLabel } from '@/lib/phase6Workflow';
+import { getStudentAiReason } from '@/lib/phase6Workflow';
 import { AiCorrectionForm } from '@/components/student/applications/AiCorrectionForm';
+import { AiVerificationProgress } from '@/components/student/applications/AiVerificationProgress';
+import { SYNTHETIC_POLICY_LABEL } from '@/lib/syntheticVerificationPolicy';
+import { resolveSchemeRequiredDocumentTypes } from '@/lib/schemeRequiredDocuments';
 
 const statusLabels: Record<string, string> = {
   DRAFT: 'Draft',
@@ -59,8 +66,15 @@ export default async function ApplicationTrackingRoute({
       updatedAt: true,
       aiVerificationStatus: true,
       aiAttemptCount: true,
+      aiInputVersion: true,
       studentAiReason: true,
-      scheme: { select: { id: true, name: true, type: true } },
+      scheme: {
+        select: {
+          id: true,
+          name: true,
+          type: true,
+        },
+      },
       documents: {
         select: {
           id: true,
@@ -74,7 +88,14 @@ export default async function ApplicationTrackingRoute({
       aiVerificationJobs: {
         orderBy: { inputVersion: 'desc' },
         take: 1,
-        select: { status: true, outcome: true, completedAt: true },
+        select: {
+          inputVersion: true,
+          status: true,
+          outcome: true,
+          completedAt: true,
+          isSynthetic: true,
+          policySnapshot: true,
+        },
       },
       selectionDecisions: {
         orderBy: { createdAt: 'desc' },
@@ -92,7 +113,14 @@ export default async function ApplicationTrackingRoute({
   if (!application) notFound();
 
   const documentsByType = new Map<string, (typeof application.documents)[number]>();
-  const requiredDocumentTypes = new Set<string>(requiredApplicationDocumentTypes);
+  const latestAiJob = application.aiVerificationJobs[0];
+  const isCurrentJob = latestAiJob?.inputVersion === application.aiInputVersion;
+  const requiredDocumentTypeList = isCurrentJob
+    ? getRequiredDocumentTypesFromPolicySnapshot(latestAiJob.policySnapshot)
+    : application.status === 'DRAFT'
+      ? await resolveSchemeRequiredDocumentTypes(application.scheme.id)
+      : getEffectiveRequiredDocumentTypes(null);
+  const requiredDocumentTypes = new Set<string>(requiredDocumentTypeList);
   for (const document of application.documents) {
     if (!documentsByType.has(document.type)) {
       documentsByType.set(document.type, document);
@@ -102,7 +130,10 @@ export default async function ApplicationTrackingRoute({
     (document) => !requiredDocumentTypes.has(document.type),
   );
   const isDraft = application.status === 'DRAFT';
-  const latestAiJob = application.aiVerificationJobs[0];
+  const isSyntheticTest = Boolean(
+    latestAiJob?.inputVersion === application.aiInputVersion &&
+    latestAiJob.isSynthetic,
+  );
   const hasCorrection = Boolean(
     latestAiJob?.status === 'COMPLETED' &&
     latestAiJob.outcome === 'INELIGIBLE' &&
@@ -157,13 +188,25 @@ export default async function ApplicationTrackingRoute({
 
           <section aria-labelledby="workflow-status-heading" className="rounded-xl border border-[#DCE3EC] bg-white p-5 shadow-sm sm:p-7">
             <h2 id="workflow-status-heading" className="text-base font-semibold text-[#172033]">Review status</h2>
+            {isSyntheticTest && (
+              <p role="note" className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-bold leading-6 text-amber-950">
+                {SYNTHETIC_POLICY_LABEL}. This test result cannot approve or reject a scholarship application.
+              </p>
+            )}
             <dl className="mt-4 grid gap-4 sm:grid-cols-3">
               <div>
                 <dt className="text-xs text-[#64748B]">AI verification</dt>
-                <dd className="mt-1 text-sm font-medium text-[#172033]">{getStudentAiStatusLabel(application.aiVerificationStatus)}</dd>
-                {getStudentAiReason(application.aiVerificationStatus, application.studentAiReason) && (
-                  <p className="mt-2 text-sm text-rose-800">{getStudentAiReason(application.aiVerificationStatus, application.studentAiReason)}</p>
-                )}
+                <dd className="mt-2">
+                  <AiVerificationProgress
+                    applicationId={application.id}
+                    initialStatus={application.aiVerificationStatus}
+                    initialReason={getStudentAiReason(
+                      application.aiVerificationStatus,
+                      application.studentAiReason,
+                    )}
+                    compact
+                  />
+                </dd>
               </div>
               <div>
                 <dt className="text-xs text-[#64748B]">Selection outcome</dt>
@@ -180,7 +223,7 @@ export default async function ApplicationTrackingRoute({
             <h2 id="document-status-heading" className="text-base font-semibold text-[#172033]">Required documents</h2>
             <p className="mt-1 text-sm text-[#64748B]">Only saved document metadata is shown; private storage links are not exposed.</p>
             <ul className="mt-4 divide-y divide-[#EEF1F5]">
-              {requiredApplicationDocumentTypes.map((type) => {
+              {requiredDocumentTypeList.map((type) => {
                 const document = documentsByType.get(type);
                 const documentStatus = !document
                   ? 'Missing'
@@ -188,7 +231,7 @@ export default async function ApplicationTrackingRoute({
 
                 return (
                   <li key={type} className="flex items-center justify-between gap-4 py-3 text-sm">
-                    <span className="text-[#334155]">{applicationDocumentLabels[type] ?? type}</span>
+                    <span className="text-[#334155]">{getApplicationDocumentLabel(type)}</span>
                     <span className="text-right font-medium text-[#475569]">{documentStatus}</span>
                   </li>
                 );
@@ -215,6 +258,7 @@ export default async function ApplicationTrackingRoute({
               <AiCorrectionForm
                 applicationId={application.id}
                 hasCorrection={hasCorrection}
+                requiredDocumentTypes={requiredDocumentTypeList}
               />
             )}
 

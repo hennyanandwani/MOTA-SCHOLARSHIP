@@ -40,6 +40,7 @@ import {
 type DocumentUploadProps = {
   schemeId: string;
   schemeName: string;
+  requiredDocumentTypes: readonly string[];
 };
 
 const buttonBase = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563A8] focus-visible:ring-offset-2';
@@ -63,8 +64,14 @@ const documentIcons: Record<ApplicationDocument['icon'], LucideIcon> = {
   photo: FileImage,
 };
 
-export function DocumentUpload({ schemeId, schemeName }: DocumentUploadProps) {
-  const [documents, setDocuments] = useState<ApplicationDocument[]>(createEmptyApplicationDocuments);
+export function DocumentUpload({
+  schemeId,
+  schemeName,
+  requiredDocumentTypes,
+}: DocumentUploadProps) {
+  const [documents, setDocuments] = useState<ApplicationDocument[]>(
+    () => createEmptyApplicationDocuments(requiredDocumentTypes),
+  );
   const [loaded, setLoaded] = useState(false);
   const [applicationId, setApplicationId] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -112,7 +119,7 @@ export function DocumentUpload({ schemeId, schemeName }: DocumentUploadProps) {
         setApplicationId(application.id);
         setDocuments(
           mergePersistedApplicationDocuments(
-            createEmptyApplicationDocuments(),
+            createEmptyApplicationDocuments(requiredDocumentTypes),
             application.documents,
           ),
         );
@@ -143,7 +150,7 @@ export function DocumentUpload({ schemeId, schemeName }: DocumentUploadProps) {
     return () => {
       active = false;
     };
-  }, [applicationIdStorageKey, schemeId]);
+  }, [applicationIdStorageKey, requiredDocumentTypes, schemeId]);
 
   const activeDocument = documents.find((document) => document.id === activeDocumentId) ?? null;
   const attentionDocuments = documents.filter((document) => document.status === 'needs_attention' || document.status === 'rejected');

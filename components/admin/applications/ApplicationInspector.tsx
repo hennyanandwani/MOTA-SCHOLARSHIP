@@ -13,6 +13,7 @@ import {
   isApplicationSubmitted,
 } from '@/lib/adminWorkflow';
 import { getStudentAiStatusLabel } from '@/lib/phase6Workflow';
+import { SYNTHETIC_POLICY_LABEL } from '@/lib/syntheticVerificationPolicy';
 import { ApplicationStatusBadge } from './ApplicationStatusBadge';
 import { X, FileText, User, Clock, Download, LoaderCircle } from 'lucide-react';
 
@@ -39,6 +40,11 @@ export function ApplicationInspector({ application, onClose }: ApplicationInspec
   const [aiAction, setAiAction] = useState<'retry' | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiNotice, setAiNotice] = useState<string | null>(null);
+  const [reevaluationPolicyId, setReevaluationPolicyId] = useState('');
+  const [reevaluationReason, setReevaluationReason] = useState('');
+  const [reevaluationSaving, setReevaluationSaving] = useState(false);
+  const [reevaluationError, setReevaluationError] = useState<string | null>(null);
+  const [reevaluationNotice, setReevaluationNotice] = useState<string | null>(null);
 
   const loadDetail = useCallback(async (signal?: AbortSignal) => {
     if (!application) return;
@@ -195,6 +201,53 @@ export function ApplicationInspector({ application, onClose }: ApplicationInspec
     }
   }
 
+  async function requestReevaluation() {
+    if (!detail || reevaluationSaving || !reevaluationPolicyId || reevaluationReason.trim().length < 3) return;
+    const policy = detail.verificationPolicies.find((item) => item.id === reevaluationPolicyId);
+    if (!policy) {
+      setReevaluationError('Select a published policy version for this scheme.');
+      return;
+    }
+    const selectedDocuments = policy.aiEligibleDocumentTypes.flatMap((type) =>
+      detail.documents.filter((file) => file.type === type),
+    );
+    if (!window.confirm(
+      `Record a re-evaluation under policy version ${policy.version} using ${selectedDocuments.length} explicitly eligible document(s)? No AI request is sent by this action.`,
+    )) return;
+    setReevaluationSaving(true);
+    setReevaluationError(null);
+    setReevaluationNotice(null);
+    try {
+      const response = await fetch(
+        `/api/admin/applications/${encodeURIComponent(detail.applicationNumber)}/ai-review/re-evaluate`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            policyId: policy.id,
+            expectedInputVersion: detail.aiInputVersion,
+            reason: reevaluationReason,
+            documentVersions: detail.documents.map((file) => ({
+              id: file.id,
+              type: file.type,
+              updatedAt: file.updatedAt,
+            })),
+          }),
+        },
+      );
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? 'Unable to record AI re-evaluation.');
+      setReevaluationReason('');
+      setReevaluationNotice(payload.message ?? 'Version-bound AI re-evaluation recorded.');
+      await loadDetail();
+      router.refresh();
+    } catch (error) {
+      setReevaluationError(error instanceof Error ? error.message : 'Unable to record AI re-evaluation.');
+    } finally {
+      setReevaluationSaving(false);
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-labelledby="inspector-title">
       <button className="fixed inset-0 cursor-default bg-slate-900/40 backdrop-blur-xs" onClick={onClose} aria-label="Close application inspector" />
@@ -348,6 +401,13 @@ export function ApplicationInspector({ application, onClose }: ApplicationInspec
                   <div><dt className="text-[#64748B]">Confidence</dt><dd className="font-semibold">{detail.aiConfidence ?? 'Not provided'}</dd></div>
                   <div><dt className="text-[#64748B]">Completed</dt><dd className="font-semibold">{detail.aiCompletedAt ? new Date(detail.aiCompletedAt).toLocaleString() : 'Not completed'}</dd></div>
                 </dl>
+                {detail.aiVerificationJobs.some(
+                  (job) => job.inputVersion === detail.aiInputVersion && job.isSynthetic,
+                ) && (
+                  <p role="note" className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold leading-5 text-amber-950">
+                    {SYNTHETIC_POLICY_LABEL}. This result cannot authorize scholarship decisions.
+                  </p>
+                )}
                 {(detail.aiExplanation || detail.aiRemarks) && <p className="mt-3 whitespace-pre-wrap text-[#475569]">{detail.aiExplanation ?? detail.aiRemarks}</p>}
                 {detail.studentAiReason && <p className="mt-2 text-[#64748B]">Student-facing reason: {detail.studentAiReason}</p>}
                 {detail.aiVerificationStatus === 'FAILED' && (
@@ -364,6 +424,74 @@ export function ApplicationInspector({ application, onClose }: ApplicationInspec
                     <p className="text-[11px] text-[#64748B]">This records an auditable request; no external AI call is sent until the service adapter is configured.</p>
                   </div>
                 )}
+              </section>
+
+              <section className="rounded-xl border border-[#DCE3EC] bg-white p-4">
+                <h3 className="mb-3 flex items-center gap-2 border-b border-[#EEF1F5] pb-2.5 font-semibold">
+                  <Clock size={15} className="text-[#173F7A]" /> AI job history and re-evaluation
+                </h3>
+                {detail.aiVerificationJobs.length === 0
+                  ? <p className="text-[#64748B]">No AI verification jobs have been recorded.</p>
+                  : <ol className="space-y-2">
+                    {detail.aiVerificationJobs.map((job) => (
+                      <li key={job.id} className="rounded-lg bg-[#F8FAFC] p-3 text-xs">
+                        <p className="font-semibold">
+                          Input v{job.inputVersion} · {job.status}
+                          {job.policyVersion ? ` · Policy v${job.policyVersion}` : ' · No policy snapshot'}
+                          {job.isSynthetic ? ' · SYNTHETIC TEST' : ''}
+                        </p>
+                        <p className="mt-1 text-[#64748B]">
+                          {job.outcome ?? 'No outcome'} · {job.attemptCount} attempt(s) · {new Date(job.createdAt).toLocaleString()}
+                          {job.requesterName ? ` · Requested by ${job.requesterName}` : ''}
+                        </p>
+                        {job.requestReason && <p className="mt-1">Reason: {job.requestReason}</p>}
+                        {job.lastErrorCode && <p className="mt-1 text-rose-700">Status code: {job.lastErrorCode}</p>}
+                      </li>
+                    ))}
+                  </ol>}
+
+                {detail.submittedAt &&
+                  ['WAITING_FOR_CONFIGURATION', 'FAILED'].includes(detail.aiVerificationStatus) &&
+                  detail.verificationPolicies.length > 0 && (
+                    <div className="mt-4 space-y-3 border-t border-[#EEF1F5] pt-3">
+                      <h4 className="font-semibold">Admin-controlled re-evaluation</h4>
+                      <label className="block">
+                        <span className="mb-1 block text-[#64748B]">Published policy version</span>
+                        <select
+                          value={reevaluationPolicyId}
+                          onChange={(event) => setReevaluationPolicyId(event.target.value)}
+                          className="w-full rounded-md border border-[#DCE3EC] bg-white px-3 py-2"
+                        >
+                          <option value="">Select a policy version</option>
+                          {detail.verificationPolicies.map((policy) => (
+                            <option key={policy.id} value={policy.id}>
+                              Version {policy.version}{policy.isSynthetic ? ' · SYNTHETIC TEST ONLY' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {detail.verificationPolicies.find((policy) => policy.id === reevaluationPolicyId)?.aiEligibleDocumentTypes.map((type) => {
+                        const matches = detail.documents.filter((file) => file.type === type);
+                        return (
+                          <p key={type} className="rounded-md bg-[#F8FAFC] px-3 py-2 text-[11px] text-[#475569]">
+                            {type}: {matches.length === 1
+                              ? `${matches[0].originalName} · ${matches[0].mimeType} · ${(matches[0].sizeBytes / 1024 / 1024).toFixed(2)} MB`
+                              : `${matches.length} matching documents; the server will reject duplicates or missing files`}
+                          </p>
+                        );
+                      })}
+                      <label className="block">
+                        <span className="mb-1 block text-[#64748B]">Reason for re-evaluation</span>
+                        <textarea value={reevaluationReason} onChange={(event) => setReevaluationReason(event.target.value)} minLength={3} maxLength={2000} rows={2} className="w-full rounded-md border border-[#DCE3EC] px-3 py-2" />
+                      </label>
+                      <button type="button" disabled={reevaluationSaving || !reevaluationPolicyId || reevaluationReason.trim().length < 3} onClick={() => void requestReevaluation()} className="rounded-md border border-[#DCE3EC] px-3 py-2 font-semibold text-[#173F7A] disabled:opacity-50">
+                        {reevaluationSaving ? 'Recording…' : 'Record re-evaluation'}
+                      </button>
+                      {reevaluationError && <p role="alert" className="text-rose-700">{reevaluationError}</p>}
+                      {reevaluationNotice && <p role="status" className="text-emerald-700">{reevaluationNotice}</p>}
+                      <p className="text-[11px] text-[#64748B]">This action creates a new immutable policy/document snapshot. It does not dispatch the job or send documents.</p>
+                    </div>
+                  )}
               </section>
 
               <section className="rounded-xl border border-[#DCE3EC] bg-white p-4">

@@ -35,6 +35,7 @@ import {
   type FamilyInformation,
   type PersonalInformation,
 } from '@/lib/applicationDraft';
+import { getApplicationDocumentLabel } from '@/lib/applicationRequirements';
 import {
   fetchStudentApplications,
   saveStudentApplicationDraft,
@@ -65,7 +66,9 @@ export function ApplicationWizard({
   scheme,
   initialData,
 }: {
-  scheme: Pick<Scheme, 'id' | 'name' | 'type'>;
+  scheme: Pick<Scheme, 'id' | 'name' | 'type'> & {
+    requiredDocumentTypes: readonly string[];
+  };
   initialData?: ApplicationData;
 }) {
   const router = useRouter();
@@ -305,6 +308,11 @@ export function ApplicationWizard({
           <h2 className="text-2xl font-bold text-[#172033]">Scholarship Application</h2>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-[#64748B]">
             Complete the application carefully. Your information should match your official documents.
+          </p>
+          <p className="mt-2 max-w-3xl text-xs leading-5 text-[#475569]">
+            Required documents: {scheme.requiredDocumentTypes
+              .map(getApplicationDocumentLabel)
+              .join(', ')}.
           </p>
         </div>
         <div className="w-full min-w-0 rounded-lg border border-[#DCE3EC] bg-white p-3.5 sm:max-w-[330px]">

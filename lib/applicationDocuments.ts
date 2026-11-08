@@ -1,3 +1,7 @@
+import {
+  requiredApplicationDocumentTypes,
+} from "@/lib/applicationRequirements";
+
 export type DocumentStatus =
   | 'not_uploaded'
   | 'uploaded'
@@ -42,9 +46,24 @@ export type PersistedApplicationDocument = {
   verificationRemarks: string | null;
 };
 
-export function createEmptyApplicationDocuments(): ApplicationDocument[] {
-  return demoApplicationDocuments.map((document) => ({
+export function createEmptyApplicationDocuments(
+  requiredTypes: readonly string[] = requiredApplicationDocumentTypes,
+): ApplicationDocument[] {
+  const requiredTypeSet = new Set(requiredTypes);
+  const documentTypeById: Record<string, string> = {
+    'st-certificate': 'CASTE_CERTIFICATE',
+    'income-certificate': 'INCOME_CERTIFICATE',
+    'identity-document': 'IDENTITY_PROOF',
+    'previous-marksheet': 'MARKSHEET',
+    'admission-certificate': 'ADMISSION_PROOF',
+    'bank-proof': 'BANK_PROOF',
+    photograph: 'PHOTOGRAPH',
+  };
+  return demoApplicationDocuments
+    .filter((document) => requiredTypeSet.has(documentTypeById[document.id]))
+    .map((document) => ({
     ...document,
+    required: requiredTypeSet.has(documentTypeById[document.id]),
     status: 'not_uploaded',
     fileName: undefined,
     fileSize: undefined,

@@ -2,6 +2,11 @@ import "server-only";
 import { getSchemeWithDetails } from "@/lib/schemeDetails";
 import { prisma } from "@/lib/prisma";
 import type { PersistedSchemeType } from "@/lib/scholarshipSchemeValidation";
+import {
+  getEffectiveRequiredDocumentTypes,
+  type ApplicationRequirementDocumentType,
+} from "@/lib/applicationRequirements";
+import { resolveSchemeRequiredDocumentTypes } from "@/lib/schemeRequiredDocuments";
 
 export type PersistedScholarshipScheme = {
   id: string;
@@ -15,6 +20,7 @@ export type SchemeWorkflowInfo = {
   id: string;
   name: string;
   type: "Scholarship" | "Fellowship";
+  requiredDocumentTypes: ApplicationRequirementDocumentType[];
 };
 
 export async function getPersistedScholarshipScheme(
@@ -41,6 +47,7 @@ export async function getSchemeWorkflowInfo(
       id: demoScheme.id,
       name: demoScheme.name,
       type: demoScheme.type,
+      requiredDocumentTypes: getEffectiveRequiredDocumentTypes(null),
     };
   }
 
@@ -51,5 +58,6 @@ export async function getSchemeWorkflowInfo(
     id: scheme.id,
     name: scheme.name,
     type: scheme.type === "FELLOWSHIP" ? "Fellowship" : "Scholarship",
+    requiredDocumentTypes: await resolveSchemeRequiredDocumentTypes(scheme.id),
   };
 }

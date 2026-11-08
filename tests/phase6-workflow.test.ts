@@ -184,6 +184,31 @@ test("selection requires AI eligibility, complete manual review, all verified do
   );
 });
 
+test("selection accepts a valid scheme-specific required-document set", () => {
+  const requiredDocumentTypes = [
+    "INCOME_CERTIFICATE",
+    "MARKSHEET",
+    "CASTE_CERTIFICATE",
+  ] as const;
+  const documents = requiredDocumentTypes.map((type) => ({
+    type,
+    verificationStatus: "VERIFIED",
+  }));
+  assert.equal(getSelectionTransitionFailure({
+    applicationStatus: "RECOMMENDED_FOR_APPROVAL",
+    submittedAt: "2026-11-04T00:00:00.000Z",
+    aiStatus: "ELIGIBLE",
+    aiAttemptCount: 0,
+    manualReviewStatus: "VERIFIED",
+    documents,
+    requiredDocumentTypes,
+    currentOutcome: null,
+    expectedOutcome: null,
+    nextOutcome: "SELECTED",
+    currentApproval: null,
+  }), null);
+});
+
 test("synchronous outcomes count only actual ineligibility and escalate the fourth result", () => {
   assert.deepEqual(mapAiOutcomeToApplication("ELIGIBLE", 0), {
     rejectionCount: 0,
@@ -312,6 +337,20 @@ test("student AI status shows only a student-safe reason for ineligibility", () 
   assert.match(page, /selectionDecisions/);
   assert.match(page, /approvalDecisions/);
   assert.doesNotMatch(page, /aiExplanation|storagePath|verificationRemarks/);
+});
+
+test("student AI status API is application-scoped and the UI polls only pending statuses", () => {
+  const route = read("app/api/student/applications/[applicationId]/ai-status/route.ts");
+  assert.match(route, /requireStudent\(\)/);
+  assert.match(route, /where:\s*\{\s*id:\s*applicationId,\s*studentId:\s*auth\.user\.student\.id\s*\}/);
+  assert.match(route, /select:\s*\{\s*aiVerificationStatus:\s*true,\s*studentAiReason:\s*true\s*\}/);
+  assert.doesNotMatch(route, /aiVerificationJobs|aiExplanation|storagePath|provider|token/i);
+
+  const progress = read("components/student/applications/AiVerificationProgress.tsx");
+  assert.match(progress, /'WAITING_FOR_CONFIGURATION',\s*'QUEUED',\s*'IN_PROGRESS'/);
+  assert.match(progress, /setTimeout\(\(\) => void refreshStatus\(\), 5000\)/);
+  assert.match(progress, /activeStatuses\.has\(currentStatus\)/);
+  assert.doesNotMatch(progress, /percentage|percent|jobId|storagePath|provider|dispatchToken/i);
 });
 
 test("submission transaction stores one pending AI job only after validated submission", () => {

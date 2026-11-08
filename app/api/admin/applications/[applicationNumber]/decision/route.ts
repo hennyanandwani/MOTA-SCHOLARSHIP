@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { ApplicationStatus, Prisma } from '@/lib/generated/prisma/client';
 import { prisma } from '@/lib/prisma';
+import { syntheticDecisionBlocked } from '@/lib/syntheticVerificationPolicy';
+import { getRequiredDocumentTypesFromPolicySnapshot } from '@/lib/applicationRequirements';
 import { requireAdmin } from '@/lib/adminAuth';
 import {
   getApplicationDecisionFailure,
@@ -46,15 +48,36 @@ export async function PATCH(request: Request, { params }: RouteContext) {
           submittedAt: true,
           aiVerificationStatus: true,
           aiAttemptCount: true,
+          aiInputVersion: true,
           manualReviewStatus: true,
+          aiVerificationJobs: {
+            orderBy: { inputVersion: 'desc' },
+            take: 1,
+            select: { inputVersion: true, isSynthetic: true, policySnapshot: true },
+          },
           documents: {
             select: { type: true, verificationStatus: true },
           },
         },
       });
       if (!application) return { error: 'Application not found.', statusCode: 404 as const };
+      const latestJob = application.aiVerificationJobs[0];
+      const requiredDocumentTypes = getRequiredDocumentTypesFromPolicySnapshot(
+        latestJob?.inputVersion === application.aiInputVersion
+          ? latestJob.policySnapshot
+          : null,
+      );
       if (!application.submittedAt) {
         return { error: 'Only submitted applications can receive review decisions.', statusCode: 409 as const };
+      }
+      if (
+        application.aiVerificationJobs[0]?.inputVersion === application.aiInputVersion &&
+        syntheticDecisionBlocked(
+          application.aiVerificationJobs[0]?.isSynthetic ||
+          application.aiVerificationJobs[0]?.policySnapshot,
+        )
+      ) {
+        return { error: 'Synthetic test policies cannot authorize scholarship decisions.', statusCode: 409 as const };
       }
       if (
         !isAiOutcomeAvailableForManualReview(
@@ -70,12 +93,16 @@ export async function PATCH(request: Request, { params }: RouteContext) {
         application.status,
         nextStatus,
         application.documents,
+        requiredDocumentTypes,
       );
       if (failure === 'documents_not_verified') {
         return {
           error: 'Verify all required documents before recommending or approving this application.',
           statusCode: 422 as const,
-          validationErrors: getMissingVerifiedDocumentTypes(application.documents),
+          validationErrors: getMissingVerifiedDocumentTypes(
+            application.documents,
+            requiredDocumentTypes,
+          ),
         };
       }
       if (failure) {

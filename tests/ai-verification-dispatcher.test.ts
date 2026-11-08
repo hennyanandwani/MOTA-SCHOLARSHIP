@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 import {
   AI_DISPATCH_EXECUTION_BUDGET_MS,
@@ -10,6 +12,7 @@ import {
 } from "../lib/aiVerificationAdapterCore";
 import {
   claimCandidateWithCompareAndSet,
+  claimTargetedCandidate,
   classifyDispatchFailure,
   executeClaimedAiVerification,
   getAbandonedClaimFence,
@@ -17,6 +20,7 @@ import {
   getProcessingClaimFence,
   isCurrentProcessingClaim,
   prepareAiVerificationInput,
+  projectApplicationDataForCriteria,
   selectAiEligibleDocuments,
   type DispatchCandidate,
   type DispatchDocument,
@@ -33,20 +37,28 @@ const publishedPolicy: ScholarshipVerificationPolicyRecord = {
   schemeId: "scheme-1",
   version: 4,
   status: "PUBLISHED",
+  isSynthetic: false,
   eligibilityCriteria: [
     {
-      field: "family.annualIncome",
+      field: "annual_income",
       operator: "lte",
       value: 250000,
       reason_code: "INCOME_LIMIT",
       explanation: "Income must be within the scheme limit.",
     },
     {
-      field: "personal.category",
+      field: "category",
       operator: "eq",
       value: "ST",
       reason_code: "CATEGORY_MATCH",
       explanation: "Applicant category must match the scheme.",
+    },
+    {
+      field: "academic_level",
+      operator: "eq",
+      value: "Undergraduate",
+      reason_code: "ACADEMIC_LEVEL",
+      explanation: "Applicant must be enrolled at an eligible academic level.",
     },
   ],
   requiredDocumentTypes: [...requiredApplicationDocumentTypes],
@@ -148,6 +160,9 @@ const candidate: DispatchCandidate = {
       emailAddress: "private@example.test",
       identityNumber: "private-id",
     },
+    academic: {
+      academicLevel: "Undergraduate",
+    },
     family: {
       annualIncome: "180000",
       guardianName: "Private Guardian",
@@ -159,6 +174,20 @@ const candidate: DispatchCandidate = {
     imageDocument("caste-image", "CASTE_CERTIFICATE"),
     imageDocument("bank-pdf", "BANK_PROOF", "application/pdf"),
   ],
+};
+
+const targetDocumentTimestamp = "2026-11-06T00:00:00.000Z";
+const targetedCandidate: DispatchCandidate = {
+  ...candidate,
+  documents: candidate.documents.map((document) => ({
+    ...document,
+    updatedAt: targetDocumentTimestamp,
+  })),
+  documentSnapshot: candidate.documents.map((document) => ({
+    id: document.id,
+    type: document.type,
+    updatedAt: targetDocumentTimestamp,
+  })),
 };
 
 const adapterResult: AiVerificationResult = {
@@ -186,6 +215,152 @@ test("claims a current waiting job with compare-and-set and permits only one con
   assert.equal(status, "PROCESSING");
 });
 
+test("targeted claims bind both identifiers and do not claim a different waiting job", async () => {
+  let compareAndSetCalls = 0;
+  const mismatchedJob = await claimTargetedCandidate(
+    "another-job",
+    candidate.applicationId,
+    targetedCandidate,
+    false,
+    async () => {
+      compareAndSetCalls += 1;
+      return true;
+    },
+  );
+  const mismatchedApplication = await claimTargetedCandidate(
+    candidate.jobId,
+    "another-application",
+    targetedCandidate,
+    false,
+    async () => {
+      compareAndSetCalls += 1;
+      return true;
+    },
+  );
+
+  assert.deepEqual(mismatchedJob, { kind: "association_mismatch" });
+  assert.deepEqual(mismatchedApplication, { kind: "association_mismatch" });
+  assert.equal(compareAndSetCalls, 0);
+});
+
+test("targeted stale-version and incomplete-snapshot checks do not mutate or claim the job", async () => {
+  const historicalJob = {
+    status: "WAITING_FOR_CONFIGURATION",
+    attemptCount: 0,
+    inputVersion: 1,
+  };
+  let compareAndSetCalls = 0;
+  const stale = await claimTargetedCandidate(
+    targetedCandidate.jobId,
+    targetedCandidate.applicationId,
+    { ...targetedCandidate, applicationInputVersion: 2 },
+    false,
+    async () => {
+      compareAndSetCalls += 1;
+      historicalJob.status = "PROCESSING";
+      historicalJob.attemptCount += 1;
+      return true;
+    },
+  );
+  const missingPolicy = await claimTargetedCandidate(
+    targetedCandidate.jobId,
+    targetedCandidate.applicationId,
+    { ...targetedCandidate, policySnapshot: null },
+    false,
+    async () => {
+      compareAndSetCalls += 1;
+      return true;
+    },
+  );
+  const missingDocuments = await claimTargetedCandidate(
+    targetedCandidate.jobId,
+    targetedCandidate.applicationId,
+    { ...targetedCandidate, documentSnapshot: null },
+    false,
+    async () => {
+      compareAndSetCalls += 1;
+      return true;
+    },
+  );
+
+  assert.deepEqual(stale, { kind: "stale", code: "INPUT_VERSION_STALE" });
+  assert.deepEqual(missingPolicy, { kind: "invalid", code: "POLICY_SNAPSHOT_MISSING" });
+  assert.deepEqual(missingDocuments, { kind: "invalid", code: "DOCUMENT_SNAPSHOT_MISSING" });
+  assert.equal(compareAndSetCalls, 0);
+  assert.deepEqual(historicalJob, {
+    status: "WAITING_FOR_CONFIGURATION",
+    attemptCount: 0,
+    inputVersion: 1,
+  });
+});
+
+test("targeted compare-and-set prevents concurrent duplicate processing", async () => {
+  let status = "WAITING_FOR_CONFIGURATION";
+  const compareAndSet = async () => {
+    await Promise.resolve();
+    if (status !== "WAITING_FOR_CONFIGURATION") return false;
+    status = "PROCESSING";
+    return true;
+  };
+  const results = await Promise.all([
+    claimTargetedCandidate(
+      targetedCandidate.jobId,
+      targetedCandidate.applicationId,
+      targetedCandidate,
+      false,
+      compareAndSet,
+    ),
+    claimTargetedCandidate(
+      targetedCandidate.jobId,
+      targetedCandidate.applicationId,
+      targetedCandidate,
+      false,
+      compareAndSet,
+    ),
+  ]);
+
+  assert.deepEqual(results.map((result) => result.kind).sort(), ["already_claimed", "claimed"]);
+  assert.equal(status, "PROCESSING");
+});
+
+test("targeted dispatch blocks synthetic jobs in production", async () => {
+  let compareAndSetCalls = 0;
+  const result = await claimTargetedCandidate(
+    targetedCandidate.jobId,
+    targetedCandidate.applicationId,
+    { ...targetedCandidate, isSynthetic: true },
+    true,
+    async () => {
+      compareAndSetCalls += 1;
+      return true;
+    },
+  );
+
+  assert.deepEqual(result, { kind: "synthetic_blocked" });
+  assert.equal(compareAndSetCalls, 0);
+});
+
+test("targeted endpoint authenticates callers and never falls back to the global queue for a target", () => {
+  const route = readFileSync(
+    join(process.cwd(), "app/api/internal/ai-verification/dispatch/route.ts"),
+    "utf8",
+  );
+  const dispatcher = readFileSync(
+    join(process.cwd(), "lib/aiVerificationDispatcher.ts"),
+    "utf8",
+  );
+  assert.ok(
+    route.indexOf("if (!isAuthorizedInternalBearer") <
+      route.indexOf("await dispatchAiVerificationJob"),
+  );
+  assert.match(route, /status: 401/);
+  assert.match(route, /dispatchAiVerificationJob\(target\.jobId, target\.applicationId\)/);
+  assert.match(route, /dispatchNextAiVerification\(\)/);
+  assert.match(dispatcher, /findFirst\(\{\s*where: \{ id: jobId, applicationId \}/);
+  assert.match(dispatcher, /export async function dispatchNextAiVerification/);
+  assert.match(dispatcher, /export async function dispatchAiVerificationJob/);
+});
+
 test("rejects stale application versions and states before claiming", async () => {
   for (const stale of [
     { ...candidate, applicationInputVersion: 2 },
@@ -211,19 +386,55 @@ test("request preparation uses only the job snapshot and projects criterion fiel
   assert.deepEqual(input.requiredDocumentTypes, snapshot.requiredDocumentTypes);
   assert.deepEqual(input.aiEligibleDocumentTypes, snapshot.aiEligibleDocumentTypes);
   assert.deepEqual(input.applicationData, {
-    family: { annualIncome: 180000 },
-    personal: { category: "ST" },
+    annual_income: 180000,
+    category: "ST",
+    academic_level: "Undergraduate",
   });
   assert.deepEqual(input.documentIds, ["income-image", "caste-image"]);
   assert.equal(input.idempotencyKey, candidate.idempotencyKey);
   assert.equal(AI_VERIFICATION_ENDPOINT_PATH, "/api/v1/verifications");
 });
 
+test("AI request sends only policy-selected documents when a scheme requires three types", () => {
+  const policySnapshot = createVerificationPolicySnapshot({
+    ...publishedPolicy,
+    requiredDocumentTypes: [
+      "INCOME_CERTIFICATE",
+      "CASTE_CERTIFICATE",
+      "MARKSHEET",
+    ],
+    aiEligibleDocumentTypes: [
+      "INCOME_CERTIFICATE",
+      "CASTE_CERTIFICATE",
+    ],
+  });
+  const input = prepareAiVerificationInput({
+    ...candidate,
+    policySnapshot,
+    documents: [
+      imageDocument("income-image", "INCOME_CERTIFICATE"),
+      imageDocument("caste-image", "CASTE_CERTIFICATE"),
+      imageDocument("marksheet-image", "MARKSHEET"),
+    ],
+  });
+
+  assert.deepEqual(input.requiredDocumentTypes, [
+    "INCOME_CERTIFICATE",
+    "CASTE_CERTIFICATE",
+    "MARKSHEET",
+  ]);
+  assert.deepEqual(input.aiEligibleDocumentTypes, [
+    "INCOME_CERTIFICATE",
+    "CASTE_CERTIFICATE",
+  ]);
+  assert.deepEqual(input.documentIds, ["income-image", "caste-image"]);
+});
+
 test("date criteria require a valid submitted date value", () => {
   const datePolicy = createVerificationPolicySnapshot({
     ...publishedPolicy,
     eligibilityCriteria: [{
-      field: "personal.dateOfBirth",
+      field: "date_of_birth",
       operator: "gte",
       value: "2000-01-01",
       reason_code: "MINIMUM_AGE",
@@ -238,7 +449,7 @@ test("date criteria require a valid submitted date value", () => {
         personal: { dateOfBirth: "2005-08-12" },
       },
     }).applicationData,
-    { personal: { dateOfBirth: "2005-08-12" } },
+    { date_of_birth: "2005-08-12" },
   );
   assert.throws(
     () => prepareAiVerificationInput({
@@ -248,6 +459,41 @@ test("date criteria require a valid submitted date value", () => {
     }),
     /CRITERION_VALUE_MISSING_OR_INVALID/,
   );
+});
+
+test("nested application paths project scalar values under exact criterion fields", () => {
+  const projected = projectApplicationDataForCriteria(
+    {
+      personal: { category: "ST" },
+      academic: { institutionName: "Example College" },
+    },
+    createVerificationPolicySnapshot({
+      ...publishedPolicy,
+      eligibilityCriteria: [
+        {
+          field: "category",
+          operator: "eq",
+          value: "ST",
+          reason_code: "CATEGORY_MATCH",
+          explanation: "Applicant category must match the scheme.",
+        },
+        {
+          field: "institution_name",
+          operator: "eq",
+          value: "Example College",
+          reason_code: "INSTITUTION_MATCH",
+          explanation: "Applicant institution must match the scheme.",
+        },
+      ],
+    }),
+  );
+  assert.deepEqual(projected, {
+    category: "ST",
+    institution_name: "Example College",
+  });
+  assert.ok(Object.values(projected).every((value) =>
+    typeof value === "string" || typeof value === "number" || typeof value === "boolean",
+  ));
 });
 
 test("rejects missing, mismatched, or invalid policy snapshots", () => {

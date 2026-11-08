@@ -5,8 +5,8 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { Topbar } from '@/components/layout/Topbar';
 import { getCurrentAppUser } from '@/lib/auth/current-user';
 import {
-  applicationDocumentLabels,
-  requiredApplicationDocumentTypes,
+  getEffectiveRequiredDocumentTypes,
+  getApplicationDocumentLabel,
 } from '@/lib/applicationRequirements';
 import { studentNavigation } from '@/lib/navigation';
 import { prisma } from '@/lib/prisma';
@@ -20,7 +20,17 @@ export default async function StudentActionRequiredPage() {
     select: {
       id: true,
       schemeId: true,
-      scheme: { select: { name: true } },
+      scheme: {
+        select: {
+          name: true,
+          verificationPolicies: {
+            where: { status: 'PUBLISHED' },
+            orderBy: { version: 'desc' },
+            take: 1,
+            select: { requiredDocumentTypes: true },
+          },
+        },
+      },
       documents: {
         select: {
           type: true,
@@ -39,9 +49,12 @@ export default async function StudentActionRequiredPage() {
       detail: string;
     }[] = [];
 
-    for (const documentType of requiredApplicationDocumentTypes) {
+    const requiredDocumentTypes = getEffectiveRequiredDocumentTypes(
+      application.scheme.verificationPolicies[0]?.requiredDocumentTypes,
+    );
+    for (const documentType of requiredDocumentTypes) {
       const document = application.documents.find(({ type }) => type === documentType);
-      const name = applicationDocumentLabels[documentType] ?? documentType;
+      const name = getApplicationDocumentLabel(documentType);
       if (!document) {
         actionsForDraft.push({
           type: documentType,

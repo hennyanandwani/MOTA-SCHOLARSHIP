@@ -16,6 +16,14 @@ import {
   buildUpdatedDraftPolicyData,
   parsePolicyMutation,
 } from "../lib/adminScholarshipPolicy";
+import {
+  SYNTHETIC_POLICY_LABEL,
+  SYNTHETIC_AI_DOCUMENT_TYPES,
+  SYNTHETIC_REQUIRED_DOCUMENT_TYPES,
+  canCreateSyntheticPolicy,
+  createSyntheticPolicyInput,
+  isSyntheticPolicyConfiguration,
+} from "../lib/syntheticVerificationPolicy";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -39,6 +47,7 @@ const publishedRecord: ScholarshipVerificationPolicyRecord = {
   schemeId: "scheme-1",
   version: 2,
   status: "PUBLISHED",
+  isSynthetic: false,
   eligibilityCriteria: validPayload.eligibilityCriteria,
   requiredDocumentTypes: ["INCOME_CERTIFICATE", "IDENTITY_PROOF"],
   aiEligibleDocumentTypes: ["INCOME_CERTIFICATE"],
@@ -161,4 +170,65 @@ test("all policy endpoints require admin authorization and legacy schemes stay o
   assert.match(schemeUi, /ScholarshipPolicyDisclosure/);
   assert.match(policyUi, /api\/admin\/schemes\/\$\{encodeURIComponent\(schemeId\)\}\/verification-policies/);
   assert.doesNotMatch(policyUi, /localStorage/);
+});
+
+test("synthetic policy fixtures are fixed, structurally validated, and development-only", () => {
+  const fixture = createSyntheticPolicyInput();
+  const validation = validateVerificationPolicyForPublication(fixture);
+  if (!validation.success) throw new Error("Synthetic policy fixture is invalid.");
+  const createdPolicy = buildDraftPolicyData(
+    "synthetic-e2e-scheme",
+    1,
+    validation.value,
+    true,
+  );
+  const expectedDocumentTypes = [
+    "INCOME_CERTIFICATE",
+    "CASTE_CERTIFICATE",
+    "MARKSHEET",
+  ];
+  assert.equal(validation.success, true);
+  assert.deepEqual(SYNTHETIC_REQUIRED_DOCUMENT_TYPES, expectedDocumentTypes);
+  assert.deepEqual(SYNTHETIC_AI_DOCUMENT_TYPES, expectedDocumentTypes);
+  assert.deepEqual(fixture.requiredDocumentTypes, expectedDocumentTypes);
+  assert.deepEqual(fixture.aiEligibleDocumentTypes, expectedDocumentTypes);
+  assert.equal(validation.value.eligibilityCriteria[0].field, "category");
+  assert.equal(validation.value.eligibilityCriteria[0].value, "Scheduled Tribe");
+  assert.equal(validation.value.eligibilityCriteria[0].reason_code, "SYNTHETIC_TEST_ONLY");
+  assert.equal(createdPolicy.isSynthetic, true);
+  assert.deepEqual(createdPolicy.requiredDocumentTypes, expectedDocumentTypes);
+  assert.deepEqual(createdPolicy.aiEligibleDocumentTypes, expectedDocumentTypes);
+  assert.equal(isSyntheticPolicyConfiguration(fixture), true);
+  assert.equal(canCreateSyntheticPolicy("development", "E2E-TEST-SCHOLARSHIP"), true);
+  assert.equal(canCreateSyntheticPolicy("production", "E2E-TEST-SCHOLARSHIP"), false);
+  assert.equal(canCreateSyntheticPolicy("development", "REAL-SCHOLARSHIP"), false);
+  assert.match(SYNTHETIC_POLICY_LABEL, /NOT FOR REAL SCHOLARSHIP DECISIONS/);
+  const altered = {
+    ...fixture,
+    eligibilityCriteria: [{
+      field: "category",
+      operator: "eq",
+      value: "Other",
+      reason_code: "CATEGORY_MATCH",
+      explanation: "Not the synthetic fixture.",
+    }],
+  };
+  assert.equal(isSyntheticPolicyConfiguration(altered), false);
+
+  const testPolicyRoute = read("app/api/admin/schemes/[schemeId]/verification-policies/test-policy/route.ts");
+  assert.match(testPolicyRoute, /requireAdmin/);
+  assert.match(testPolicyRoute, /process\.env\.NODE_ENV !== "development"/);
+  assert.match(testPolicyRoute, /validateVerificationPolicyForPublication/);
+  assert.match(testPolicyRoute, /createSyntheticPolicyInput/);
+  assert.match(testPolicyRoute, /validation\.value,\s*true/);
+  const publishRoute = read("app/api/admin/schemes/[schemeId]/verification-policies/[policyId]/publish/route.ts");
+  assert.match(publishRoute, /OFFICIAL_POLICY_EXISTS/);
+  assert.match(read("app/api/student/applications/[applicationId]/submit/route.ts"), /SYNTHETIC_POLICY_BLOCKED/);
+  assert.match(read("app/api/admin/applications/[applicationNumber]/ai-review/route.ts"), /SYNTHETIC_POLICY_BLOCKED/);
+  const policyRoute = read("app/api/admin/schemes/[schemeId]/verification-policies/[policyId]/route.ts");
+  assert.match(policyRoute, /current\.isSynthetic/);
+  assert.match(policyRoute, /SYNTHETIC_POLICY_IMMUTABLE/);
+  assert.match(read("app/admin/schemes/page.tsx"), /process\.env\.NODE_ENV === 'development'/);
+  const schema = read("prisma/schema.prisma");
+  assert.match(schema, /isSynthetic\s+Boolean\s+@default\(false\)/);
 });

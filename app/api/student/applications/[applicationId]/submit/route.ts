@@ -1,12 +1,15 @@
-import { NextResponse } from "next/server";
-import { ApplicationStatus } from "@/lib/generated/prisma/client";
+import { after, NextResponse } from "next/server";
+import { ApplicationStatus, Prisma } from "@/lib/generated/prisma/client";
 import { requireStudent } from "@/lib/studentAuth";
 import { prisma } from "@/lib/prisma";
+import { dispatchAiVerificationJob } from "@/lib/aiVerificationDispatcher";
 import { buildAiJobIdempotencyKey } from "@/lib/aiVerificationContract";
+import { buildDocumentVersionSnapshot } from "@/lib/aiVerificationReevaluation";
 import { buildAiVerificationJobPolicyData } from "@/lib/scholarshipVerificationPolicy";
+import { canCreateSyntheticPolicy } from "@/lib/syntheticVerificationPolicy";
 import {
   applicationDocumentLabels,
-  requiredApplicationDocumentTypes,
+  getEffectiveRequiredDocumentTypes,
 } from "@/lib/applicationRequirements";
 import {
   canResubmitAfterAiRejection,
@@ -17,6 +20,7 @@ import {
 } from "@/lib/applicationSubmission";
 
 export const runtime = "nodejs";
+export const maxDuration = 120;
 
 type SubmissionResult = SubmissionAbortResult | {
   kind: "submitted";
@@ -26,6 +30,7 @@ type SubmissionResult = SubmissionAbortResult | {
     status: ApplicationStatus;
     submittedAt: Date | null;
   };
+  jobId: string;
 };
 
 export async function POST(
@@ -46,6 +51,15 @@ export async function POST(
     let result: SubmissionResult;
     try {
       result = await prisma.$transaction(async (tx) => {
+        const draftLock = await tx.scholarshipApplication.updateMany({
+          where: {
+            id: applicationId,
+            studentId,
+            status: ApplicationStatus.DRAFT,
+          },
+          data: { status: ApplicationStatus.DRAFT },
+        });
+
         const application = await tx.scholarshipApplication.findFirst({
           where: {
             id: applicationId,
@@ -67,9 +81,10 @@ export async function POST(
             eligibilityNotGuaranteed: true,
             termsAccepted: true,
             accountNumberConfirmed: true,
-            scheme: { select: { isActive: true } },
+            scheme: { select: { isActive: true, name: true } },
             documents: {
               select: {
+                id: true,
                 type: true,
                 verificationStatus: true,
                 updatedAt: true,
@@ -93,6 +108,10 @@ export async function POST(
 
         const isCorrectionResubmission =
           application.status === ApplicationStatus.SUBMITTED;
+        if (!isCorrectionResubmission && draftLock.count !== 1) {
+          return { kind: "not_draft" as const };
+        }
+
         if (isCorrectionResubmission) {
           const latestJob = application.aiVerificationJobs[0] ?? null;
           const correctedDocumentUpdatedAt = latestJob?.completedAt
@@ -126,37 +145,6 @@ export async function POST(
           if (correctionLock.count !== 1) {
             return { kind: "not_draft" as const };
           }
-        } else {
-          const draftLock = await tx.scholarshipApplication.updateMany({
-            where: {
-              id: application.id,
-              studentId,
-              status: ApplicationStatus.DRAFT,
-            },
-            data: { status: ApplicationStatus.DRAFT },
-          });
-          if (draftLock.count !== 1) {
-            return { kind: "not_draft" as const };
-          }
-        }
-
-        const validationFailure = getSubmissionValidationFailure({
-          schemeIsActive: application.scheme.isActive,
-          formData: application.formData,
-          currentStep: application.currentStep,
-          accountNumberConfirmed: application.accountNumberConfirmed,
-          declarations: [
-            application.informationConfirmed,
-            application.verificationAcknowledged,
-            application.eligibilityNotGuaranteed,
-            application.termsAccepted,
-          ],
-          documents: application.documents,
-          requiredDocumentTypes: requiredApplicationDocumentTypes,
-          documentLabels: applicationDocumentLabels,
-        });
-        if (validationFailure) {
-          throw new SubmissionTransactionAbort(validationFailure);
         }
 
         const publishedPolicy = await tx.scholarshipVerificationPolicy.findFirst({
@@ -174,9 +162,41 @@ export async function POST(
             guidelineRevision: true,
             publishedById: true,
             publishedAt: true,
+            isSynthetic: true,
           },
         });
+        const requiredDocumentTypes = getEffectiveRequiredDocumentTypes(
+          publishedPolicy?.requiredDocumentTypes,
+        );
+        const validationFailure = getSubmissionValidationFailure({
+          schemeIsActive: application.scheme.isActive,
+          formData: application.formData,
+          currentStep: application.currentStep,
+          accountNumberConfirmed: application.accountNumberConfirmed,
+          declarations: [
+            application.informationConfirmed,
+            application.verificationAcknowledged,
+            application.eligibilityNotGuaranteed,
+            application.termsAccepted,
+          ],
+          documents: application.documents,
+          requiredDocumentTypes,
+          documentLabels: applicationDocumentLabels,
+        });
+        if (validationFailure) {
+          throw new SubmissionTransactionAbort(validationFailure);
+        }
+
         const policyJobData = buildAiVerificationJobPolicyData(publishedPolicy);
+        if (
+          policyJobData.isSynthetic &&
+          (!canCreateSyntheticPolicy(process.env.NODE_ENV, application.scheme.name) ||
+            await tx.scholarshipVerificationPolicy.count({
+              where: { schemeId: application.schemeId, isSynthetic: false },
+            }) > 0)
+        ) {
+          throw new SubmissionTransactionAbort({ kind: "synthetic_policy_blocked" });
+        }
 
         const nextVersion = application.aiInputVersion + 1;
         const update = await tx.scholarshipApplication.updateMany({
@@ -213,7 +233,7 @@ export async function POST(
           throw new SubmissionTransactionAbort({ kind: "not_draft" });
         }
 
-        await tx.aiVerificationJob.create({
+        const job = await tx.aiVerificationJob.create({
           data: {
             applicationId: application.id,
             inputVersion: nextVersion,
@@ -222,6 +242,9 @@ export async function POST(
               ? `Student correction after ${application.aiAttemptCount} AI ineligibility result(s)`
               : "Initial submission",
             status: "WAITING_FOR_CONFIGURATION",
+            documentSnapshot: buildDocumentVersionSnapshot(
+              application.documents,
+            ) as Prisma.InputJsonValue,
             ...policyJobData,
           },
         });
@@ -236,7 +259,7 @@ export async function POST(
           },
         });
 
-        return { kind: "submitted", application: submitted };
+        return { kind: "submitted", application: submitted, jobId: job.id };
       });
     } catch (error) {
       if (!(error instanceof SubmissionTransactionAbort)) throw error;
@@ -259,6 +282,11 @@ export async function POST(
           { error: "This scholarship scheme is no longer active" },
           { status: getSubmissionFailureStatus(result.kind) },
         );
+      case "synthetic_policy_blocked":
+        return NextResponse.json(
+          { error: "Synthetic test policies cannot be used outside local development.", code: "SYNTHETIC_POLICY_BLOCKED" },
+          { status: getSubmissionFailureStatus(result.kind) },
+        );
       case "invalid_application":
         return NextResponse.json(
           {
@@ -276,6 +304,16 @@ export async function POST(
           { status: getSubmissionFailureStatus(result.kind) },
         );
       case "submitted":
+        after(async () => {
+          try {
+            await dispatchAiVerificationJob(result.jobId, result.application.id);
+          } catch (error) {
+            console.error(
+              "Unable to trigger AI verification dispatch:",
+              error instanceof Error ? error.name : "Unknown error",
+            );
+          }
+        });
         return NextResponse.json(
           { application: result.application },
           { status: 200 },

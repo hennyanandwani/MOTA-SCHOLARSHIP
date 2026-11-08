@@ -2,22 +2,21 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  applicationDocumentLabels,
-  requiredApplicationDocumentTypes,
-} from '@/lib/applicationRequirements';
+import { getApplicationDocumentLabel } from '@/lib/applicationRequirements';
 
 type AiCorrectionFormProps = {
   applicationId: string;
   hasCorrection: boolean;
+  requiredDocumentTypes: readonly string[];
 };
 
 export function AiCorrectionForm({
   applicationId,
   hasCorrection: initialHasCorrection,
+  requiredDocumentTypes,
 }: AiCorrectionFormProps) {
   const router = useRouter();
-  const [selectedType, setSelectedType] = useState(requiredApplicationDocumentTypes[0]);
+  const [selectedType, setSelectedType] = useState(requiredDocumentTypes[0] ?? 'CASTE_CERTIFICATE');
   const [file, setFile] = useState<File | null>(null);
   const [hasCorrection, setHasCorrection] = useState(initialHasCorrection);
   const [busy, setBusy] = useState(false);
@@ -87,8 +86,8 @@ export function AiCorrectionForm({
             onChange={(event) => setSelectedType(event.target.value as typeof selectedType)}
             className="mt-1 block h-10 w-full rounded-md border border-slate-300 bg-white px-2"
           >
-            {requiredApplicationDocumentTypes.map((type) => (
-              <option key={type} value={type}>{applicationDocumentLabels[type] ?? type}</option>
+            {requiredDocumentTypes.map((type) => (
+              <option key={type} value={type}>{getApplicationDocumentLabel(type)}</option>
             ))}
           </select>
         </label>

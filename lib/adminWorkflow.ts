@@ -92,8 +92,9 @@ const documentTransitions: Partial<
 
 export function getMissingVerifiedDocumentTypes(
   documents: readonly ReviewedDocument[],
+  requiredDocumentTypes: readonly DocumentType[] = requiredApplicationDocumentTypes,
 ): DocumentType[] {
-  return requiredApplicationDocumentTypes.filter(
+  return requiredDocumentTypes.filter(
     (type) =>
       !documents.some(
         (document) =>
@@ -105,9 +106,10 @@ export function getMissingVerifiedDocumentTypes(
 
 export function areRequiredApplicationDocumentsVerified(
   documents: readonly ReviewedDocument[],
+  requiredDocumentTypes: readonly DocumentType[] = requiredApplicationDocumentTypes,
 ): boolean {
   return (
-    getMissingVerifiedDocumentTypes(documents).length === 0 &&
+    getMissingVerifiedDocumentTypes(documents, requiredDocumentTypes).length === 0 &&
     documents.every(
       (document) => document.verificationStatus === documentStatus.VERIFIED,
     )
@@ -117,12 +119,13 @@ export function areRequiredApplicationDocumentsVerified(
 export function getAllowedApplicationDecisionTransitions(
   current: ApplicationStatus,
   documents: readonly ReviewedDocument[],
+  requiredDocumentTypes: readonly DocumentType[] = requiredApplicationDocumentTypes,
 ): ApplicationStatus[] {
   return (applicationTransitions[current] ?? []).filter(
     (next) =>
       (next !== appStatus.RECOMMENDED_FOR_APPROVAL &&
         next !== appStatus.APPROVED_BY_OFFICER) ||
-      areRequiredApplicationDocumentsVerified(documents),
+      areRequiredApplicationDocumentsVerified(documents, requiredDocumentTypes),
   );
 }
 
@@ -130,6 +133,7 @@ export function getApplicationDecisionFailure(
   current: ApplicationStatus,
   next: ApplicationStatus,
   documents: readonly ReviewedDocument[],
+  requiredDocumentTypes: readonly DocumentType[] = requiredApplicationDocumentTypes,
 ): "draft" | "invalid_transition" | "documents_not_verified" | null {
   if (current === "DRAFT") return "draft";
   if (!(applicationTransitions[current] ?? []).includes(next)) {
@@ -138,7 +142,7 @@ export function getApplicationDecisionFailure(
   if (
     (next === appStatus.RECOMMENDED_FOR_APPROVAL ||
       next === appStatus.APPROVED_BY_OFFICER) &&
-    !areRequiredApplicationDocumentsVerified(documents)
+    !areRequiredApplicationDocumentsVerified(documents, requiredDocumentTypes)
   ) {
     return "documents_not_verified";
   }

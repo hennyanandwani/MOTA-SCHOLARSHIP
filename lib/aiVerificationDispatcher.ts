@@ -10,10 +10,12 @@ import { prisma } from "@/lib/prisma";
 import { submitFastApiAiVerification } from "@/lib/aiVerificationAdapter";
 import {
   claimCandidateWithCompareAndSet,
+  claimTargetedCandidate,
   executeClaimedAiVerification,
   getAbandonedClaimFence,
   getDispatchCandidateStaleness,
   getProcessingClaimFence,
+  isDispatchCandidateVersionCurrent,
   mapAiOutcomeToApplication,
   type DispatchCandidate,
   type DispatchDocument,
@@ -40,6 +42,15 @@ type ClaimResult =
   | { kind: "stale" }
   | { kind: "contended" }
   | { kind: "empty" };
+
+type TargetedClaimResult =
+  | { kind: "claimed"; candidate: DispatchCandidate }
+  | { kind: "contended" }
+  | { kind: "not_found" }
+  | { kind: "not_eligible" }
+  | { kind: "synthetic_blocked" }
+  | { kind: "stale"; code: string }
+  | { kind: "invalid"; code: string };
 
 function isSerializableConflict(error: unknown): boolean {
   return (
@@ -110,83 +121,223 @@ async function claimNextJob(): Promise<ClaimResult> {
   for (let attempt = 0; attempt < MAX_STALE_CANDIDATES_PER_RUN; attempt += 1) {
     try {
       const result = await prisma.$transaction(async (transaction): Promise<ClaimResult> => {
-        const job = await transaction.aiVerificationJob.findFirst({
-          where: { status: AiVerificationJobStatus.WAITING_FOR_CONFIGURATION },
-          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-          select: {
-            id: true,
-            applicationId: true,
-            inputVersion: true,
-            attemptCount: true,
-            idempotencyKey: true,
-            policyId: true,
-            policySnapshot: true,
-            application: {
-              select: {
-                status: true,
-                aiInputVersion: true,
-                aiVerificationStatus: true,
-                schemeId: true,
-                formData: true,
-                documents: {
-                  select: {
-                    id: true,
-                    type: true,
-                    mimeType: true,
+        let cursor: { id: string } | undefined;
+        while (true) {
+          const jobs = await transaction.aiVerificationJob.findMany({
+            where: {
+              status: AiVerificationJobStatus.WAITING_FOR_CONFIGURATION,
+              ...(process.env.NODE_ENV === "production" ? { isSynthetic: false } : {}),
+            },
+            orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            take: 50,
+            ...(cursor ? { cursor, skip: 1 } : {}),
+            select: {
+              id: true,
+              applicationId: true,
+              inputVersion: true,
+              attemptCount: true,
+              idempotencyKey: true,
+              policyId: true,
+              policySnapshot: true,
+              isSynthetic: true,
+              documentSnapshot: true,
+              application: {
+                select: {
+                  status: true,
+                  aiInputVersion: true,
+                  aiVerificationStatus: true,
+                  schemeId: true,
+                  formData: true,
+                  documents: {
+                    select: {
+                      id: true,
+                      type: true,
+                      mimeType: true,
+                      updatedAt: true,
+                    },
                   },
                 },
               },
             },
-          },
-        });
-        if (!job) return { kind: "empty" };
+          });
+          if (jobs.length === 0) return { kind: "empty" };
 
-        const candidate: DispatchCandidate = {
-          jobId: job.id,
-          applicationId: job.applicationId,
-          inputVersion: job.inputVersion,
-          claimAttemptCount: job.attemptCount + 1,
-          applicationStatus: job.application.status,
-          applicationInputVersion: job.application.aiInputVersion,
-          applicationAiStatus: job.application.aiVerificationStatus,
-          applicationSchemeId: job.application.schemeId,
-          idempotencyKey: job.idempotencyKey,
-          policyId: job.policyId,
-          policySnapshot: job.policySnapshot,
-          applicationData: job.application.formData,
-          documents: job.application.documents as DispatchDocument[],
-        };
-        const staleReason = getDispatchCandidateStaleness(candidate);
-        if (staleReason) {
-          const superseded = await transaction.aiVerificationJob.updateMany({
-            where: {
-              id: job.id,
+          for (const job of jobs) {
+            cursor = { id: job.id };
+            const candidate: DispatchCandidate = {
+              jobId: job.id,
+              applicationId: job.applicationId,
               inputVersion: job.inputVersion,
-              status: AiVerificationJobStatus.WAITING_FOR_CONFIGURATION,
-              attemptCount: job.attemptCount,
-              application: {
-                is: {
-                  status: job.application.status,
-                  aiInputVersion: job.application.aiInputVersion,
-                  aiVerificationStatus: job.application.aiVerificationStatus,
+              claimAttemptCount: job.attemptCount + 1,
+              applicationStatus: job.application.status,
+              applicationInputVersion: job.application.aiInputVersion,
+              applicationAiStatus: job.application.aiVerificationStatus,
+              applicationSchemeId: job.application.schemeId,
+              idempotencyKey: job.idempotencyKey,
+              policyId: job.policyId,
+              policySnapshot: job.policySnapshot,
+              isSynthetic: job.isSynthetic,
+              documentSnapshot: job.documentSnapshot,
+              applicationData: job.application.formData,
+              documents: job.application.documents as DispatchDocument[],
+            };
+
+            if (!isDispatchCandidateVersionCurrent(candidate)) continue;
+
+            const staleReason = getDispatchCandidateStaleness(candidate);
+            if (staleReason) {
+              const superseded = await transaction.aiVerificationJob.updateMany({
+                where: {
+                  id: job.id,
+                  inputVersion: job.inputVersion,
+                  status: AiVerificationJobStatus.WAITING_FOR_CONFIGURATION,
+                  attemptCount: job.attemptCount,
+                  application: {
+                    is: {
+                      status: job.application.status,
+                      aiInputVersion: job.application.aiInputVersion,
+                      aiVerificationStatus: job.application.aiVerificationStatus,
+                    },
+                  },
+                },
+                data: {
+                  status: AiVerificationJobStatus.SUPERSEDED,
+                  lastErrorCode: staleReason,
+                },
+              });
+              return superseded.count === 1 ? { kind: "stale" } : { kind: "contended" };
+            }
+
+            const claim = await claimCandidateWithCompareAndSet(candidate, async () => {
+              const claimed = await transaction.aiVerificationJob.updateMany({
+                where: {
+                  id: job.id,
+                  inputVersion: job.inputVersion,
+                  status: AiVerificationJobStatus.WAITING_FOR_CONFIGURATION,
+                  attemptCount: job.attemptCount,
+                  application: {
+                    is: {
+                      status: ApplicationStatus.SUBMITTED,
+                      aiInputVersion: job.inputVersion,
+                      aiVerificationStatus: AiVerificationStatus.WAITING_FOR_CONFIGURATION,
+                    },
+                  },
+                },
+                data: {
+                  status: AiVerificationJobStatus.PROCESSING,
+                  attemptCount: { increment: 1 },
+                  lastErrorCode: null,
+                },
+              });
+              if (claimed.count !== 1) return false;
+
+              const applicationClaimed = await transaction.scholarshipApplication.updateMany({
+                where: {
+                  id: job.applicationId,
+                  status: ApplicationStatus.SUBMITTED,
+                  aiInputVersion: job.inputVersion,
+                  aiVerificationStatus: AiVerificationStatus.WAITING_FOR_CONFIGURATION,
+                },
+                data: { aiVerificationStatus: AiVerificationStatus.IN_PROGRESS },
+              });
+              if (applicationClaimed.count !== 1) {
+                throw new Error("Dispatcher claim changed during its transaction.");
+              }
+              return true;
+            });
+            if (claim === "stale") return { kind: "stale" };
+            if (claim === "already_claimed") return { kind: "contended" };
+            return { kind: "claimed", candidate };
+          }
+        }
+      }, serializableTransactionOptions);
+      if (result.kind === "stale") continue;
+      return result;
+    } catch (error) {
+      if (isSerializableConflict(error)) return { kind: "contended" };
+      throw error;
+    }
+  }
+  return { kind: "contended" };
+}
+
+async function claimSpecificJob(
+  jobId: string,
+  applicationId: string,
+): Promise<TargetedClaimResult> {
+  try {
+    return await prisma.$transaction(async (transaction): Promise<TargetedClaimResult> => {
+      const job = await transaction.aiVerificationJob.findFirst({
+        where: { id: jobId, applicationId },
+        select: {
+          id: true,
+          applicationId: true,
+          inputVersion: true,
+          status: true,
+          attemptCount: true,
+          idempotencyKey: true,
+          policyId: true,
+          policySnapshot: true,
+          isSynthetic: true,
+          documentSnapshot: true,
+          application: {
+            select: {
+              status: true,
+              aiInputVersion: true,
+              aiVerificationStatus: true,
+              schemeId: true,
+              formData: true,
+              documents: {
+                select: {
+                  id: true,
+                  type: true,
+                  mimeType: true,
+                  updatedAt: true,
                 },
               },
             },
-            data: {
-              status: AiVerificationJobStatus.SUPERSEDED,
-              lastErrorCode: staleReason,
-            },
-          });
-          return superseded.count === 1 ? { kind: "stale" } : { kind: "contended" };
-        }
+          },
+        },
+      });
+      if (!job) return { kind: "not_found" };
+      if (job.status !== AiVerificationJobStatus.WAITING_FOR_CONFIGURATION) {
+        return { kind: "not_eligible" };
+      }
 
-        const claim = await claimCandidateWithCompareAndSet(candidate, async () => {
+      const candidate: DispatchCandidate = {
+        jobId: job.id,
+        applicationId: job.applicationId,
+        inputVersion: job.inputVersion,
+        claimAttemptCount: job.attemptCount + 1,
+        applicationStatus: job.application.status,
+        applicationInputVersion: job.application.aiInputVersion,
+        applicationAiStatus: job.application.aiVerificationStatus,
+        applicationSchemeId: job.application.schemeId,
+        idempotencyKey: job.idempotencyKey,
+        policyId: job.policyId,
+        policySnapshot: job.policySnapshot,
+        isSynthetic: job.isSynthetic,
+        documentSnapshot: job.documentSnapshot,
+        applicationData: job.application.formData,
+        documents: job.application.documents as DispatchDocument[],
+      };
+
+      const result = await claimTargetedCandidate(
+        jobId,
+        applicationId,
+        candidate,
+        process.env.NODE_ENV === "production",
+        async () => {
           const claimed = await transaction.aiVerificationJob.updateMany({
             where: {
-              id: job.id,
+              id: jobId,
+              applicationId,
               inputVersion: job.inputVersion,
+              idempotencyKey: job.idempotencyKey,
+              policyId: job.policyId,
               status: AiVerificationJobStatus.WAITING_FOR_CONFIGURATION,
               attemptCount: job.attemptCount,
+              ...(process.env.NODE_ENV === "production" ? { isSynthetic: false } : {}),
               application: {
                 is: {
                   status: ApplicationStatus.SUBMITTED,
@@ -205,7 +356,7 @@ async function claimNextJob(): Promise<ClaimResult> {
 
           const applicationClaimed = await transaction.scholarshipApplication.updateMany({
             where: {
-              id: job.applicationId,
+              id: applicationId,
               status: ApplicationStatus.SUBMITTED,
               aiInputVersion: job.inputVersion,
               aiVerificationStatus: AiVerificationStatus.WAITING_FOR_CONFIGURATION,
@@ -213,22 +364,23 @@ async function claimNextJob(): Promise<ClaimResult> {
             data: { aiVerificationStatus: AiVerificationStatus.IN_PROGRESS },
           });
           if (applicationClaimed.count !== 1) {
-            throw new Error("Dispatcher claim changed during its transaction.");
+            throw new Error("Targeted dispatcher claim changed during its transaction.");
           }
           return true;
-        });
-        if (claim === "stale") return { kind: "stale" };
-        if (claim === "already_claimed") return { kind: "contended" };
-        return { kind: "claimed", candidate };
-      }, serializableTransactionOptions);
-      if (result.kind === "stale") continue;
-      return result;
-    } catch (error) {
-      if (isSerializableConflict(error)) return { kind: "contended" };
-      throw error;
-    }
+        },
+      );
+
+      if (result.kind === "claimed") return { kind: "claimed", candidate };
+      if (result.kind === "already_claimed") return { kind: "contended" };
+      if (result.kind === "stale") return result;
+      if (result.kind === "invalid") return result;
+      if (result.kind === "synthetic_blocked") return result;
+      return { kind: "not_found" };
+    }, serializableTransactionOptions);
+  } catch (error) {
+    if (isSerializableConflict(error)) return { kind: "contended" };
+    throw error;
   }
-  return { kind: "contended" };
 }
 
 function toStoredOutcome(outcome: AiVerificationResult["outcome"]): AiVerificationStatus {
@@ -420,6 +572,44 @@ export async function dispatchNextAiVerification(): Promise<
           jobId: claim.candidate.jobId,
           failure: execution.failure,
           recovered,
+        };
+  } finally {
+    clearTimeout(deadlineTimer);
+  }
+}
+
+export async function dispatchAiVerificationJob(
+  jobId: string,
+  applicationId: string,
+): Promise<
+  | { kind: "completed" | "failed"; jobId: string; outcome?: AiVerificationResult["outcome"]; failure?: DispatchFailure }
+  | { kind: "contended" | "not_found" | "not_eligible" | "synthetic_blocked" }
+  | { kind: "stale" | "invalid"; code: string }
+> {
+  const deadline = new AbortController();
+  const deadlineTimer = setTimeout(
+    () => deadline.abort(),
+    AI_DISPATCH_EXECUTION_BUDGET_MS,
+  );
+  try {
+    const claim = await claimSpecificJob(jobId, applicationId);
+    if (claim.kind !== "claimed") return claim;
+
+    const execution = await executeClaimedAiVerification(claim.candidate, {
+      submit: (input, signal) => submitFastApiAiVerification(input, signal),
+      complete: persistJobResult,
+      fail: persistDispatchFailure,
+    }, deadline.signal);
+    return execution.kind === "completed"
+      ? {
+          kind: "completed",
+          jobId: claim.candidate.jobId,
+          outcome: execution.outcome,
+        }
+      : {
+          kind: "failed",
+          jobId: claim.candidate.jobId,
+          failure: execution.failure,
         };
   } finally {
     clearTimeout(deadlineTimer);

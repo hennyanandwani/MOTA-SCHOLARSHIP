@@ -28,6 +28,22 @@ existing job idempotency key, and uploads only JPEG, PNG, or WebP files (up to
 five files, 10 MiB each, and 20 megapixels each). Multipart filenames are
 synthetic and do not include the stored original filename.
 
+For an explicitly selected job, the same endpoint accepts a JSON body containing
+only `jobId` and its expected `applicationId`. The targeted path performs an
+exact job/application lookup, rejects stale or incomplete snapshots before
+claiming, and uses the same transactional claim fence as the global queue. It
+does not run global recovery or select another queue item. A targeted call
+returns a conflict when the job is stale, already claimed, or not waiting.
+Keep the bearer token only in a trusted server-side scheduler or operations
+secret store; never call this endpoint from browser code.
+
+This repository does not configure or enable a scheduled caller. To enable
+automatic dispatch in a deployment, an authorized external scheduler must be
+configured to call this authenticated endpoint with a targeted job/application
+pair (or call the global form only when global queue processing is intended).
+Until that operational caller is configured and verified, automatic dispatch
+is not active; recording a re-evaluation job alone does not send an AI request.
+
 Synchronous results are persisted transactionally to the current fenced job
 and application input version. Only actual `INELIGIBLE` results increment
 `aiAttemptCount`; the first three permit document correction and resubmission,

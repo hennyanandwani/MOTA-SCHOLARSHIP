@@ -49,11 +49,13 @@ export function buildDraftPolicyData(
   schemeId: string,
   version: number,
   policy: ValidatedVerificationPolicyDraft,
+  isSynthetic = false,
 ) {
   return {
     schemeId,
     version,
     status: "DRAFT" as const,
+    isSynthetic,
     eligibilityCriteria: policy.eligibilityCriteria as Prisma.InputJsonValue,
     requiredDocumentTypes: policy.requiredDocumentTypes,
     aiEligibleDocumentTypes: policy.aiEligibleDocumentTypes,

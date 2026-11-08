@@ -70,6 +70,7 @@ export type ScholarshipVerificationPolicyRecord = {
   schemeId: string;
   version: number;
   status: "DRAFT" | "PUBLISHED";
+  isSynthetic: boolean;
   eligibilityCriteria: EligibilityCriterion[];
   requiredDocumentTypes: VerificationDocumentType[];
   aiEligibleDocumentTypes: VerificationDocumentType[];
@@ -84,6 +85,7 @@ export type VerificationPolicySnapshot = {
   policyId: string;
   schemeId: string;
   policyVersion: number;
+  isSynthetic: boolean;
   eligibilityCriteria: PublishedEligibilityCriterion[];
   requiredDocumentTypes: VerificationDocumentType[];
   aiEligibleDocumentTypes: VerificationDocumentType[];
@@ -183,6 +185,12 @@ const requiredDocumentTypeSet = new Set<string>(requiredApplicationDocumentTypes
 const executableTextPattern =
   /(?:=>|&&|\|\||\$\{|[{};`]|javascript:|<\/?script\b|\b(?:eval|function|require|import|process|globalThis|window|document|constructor|__proto__)\s*[.(\[])/i;
 const reasonCodePattern = /^[A-Z][A-Z0-9_]{0,63}$/;
+
+export function isVerificationDocumentType(
+  value: string,
+): value is VerificationDocumentType {
+  return documentTypeSet.has(value);
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -537,6 +545,7 @@ export function createDraftFromPublishedPolicy(
     schemeId: policy.schemeId,
     version: policy.version + 1,
     status: "DRAFT",
+    isSynthetic: policy.isSynthetic,
     eligibilityCriteria: structuredClone(policy.eligibilityCriteria),
     requiredDocumentTypes: [...policy.requiredDocumentTypes],
     aiEligibleDocumentTypes: [...policy.aiEligibleDocumentTypes],
@@ -575,6 +584,7 @@ export function createVerificationPolicySnapshot(
     policyId: policy.id,
     schemeId: policy.schemeId,
     policyVersion: policy.version,
+    isSynthetic: policy.isSynthetic,
     eligibilityCriteria: structuredClone(validatedPolicy.value.eligibilityCriteria),
     requiredDocumentTypes: [...validatedPolicy.value.requiredDocumentTypes],
     aiEligibleDocumentTypes: [...validatedPolicy.value.aiEligibleDocumentTypes],
@@ -588,11 +598,16 @@ export function createVerificationPolicySnapshot(
 
 export function buildAiVerificationJobPolicyData(
   policy: VerificationPolicySnapshotSource | null,
-): { policyId: string; policySnapshot: DeepReadonly<VerificationPolicySnapshot> } | Record<string, never> {
+): {
+  policyId: string;
+  policySnapshot: DeepReadonly<VerificationPolicySnapshot>;
+  isSynthetic: boolean;
+} | Record<string, never> {
   if (!policy) return {};
   return {
     policyId: policy.id,
     policySnapshot: createVerificationPolicySnapshot(policy),
+    isSynthetic: policy.isSynthetic,
   };
 }
 

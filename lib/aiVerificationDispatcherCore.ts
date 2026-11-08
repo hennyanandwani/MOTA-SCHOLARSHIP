@@ -42,6 +42,7 @@ export type DispatchDocument = {
   id: string;
   type: string;
   mimeType: string;
+  updatedAt?: Date | string;
 };
 
 export type DispatchCandidate = {
@@ -56,6 +57,8 @@ export type DispatchCandidate = {
   idempotencyKey: string;
   policyId: string | null;
   policySnapshot: unknown;
+  isSynthetic?: boolean;
+  documentSnapshot?: unknown;
   applicationData: unknown;
   documents: readonly DispatchDocument[];
 };
@@ -148,7 +151,81 @@ export function getDispatchCandidateStaleness(
   if (candidate.applicationAiStatus !== "WAITING_FOR_CONFIGURATION") {
     return "APPLICATION_NOT_WAITING";
   }
+  if (candidate.documentSnapshot != null) {
+    const snapshot = parseDocumentSnapshot(candidate.documentSnapshot);
+    if (!snapshot) return "DOCUMENT_SNAPSHOT_INVALID";
+    const current = candidate.documents.map((document) => {
+      const updatedAt = document.updatedAt instanceof Date
+        ? document.updatedAt.toISOString()
+        : document.updatedAt;
+      return typeof updatedAt === "string"
+        ? { id: document.id, type: document.type, updatedAt }
+        : null;
+    });
+    const currentEntries = current.filter(
+      (document): document is DocumentSnapshotEntry => document !== null,
+    );
+    if (
+      currentEntries.length !== current.length ||
+      !sameDocumentSnapshot(snapshot, currentEntries)
+    ) {
+      return "DOCUMENT_VERSION_STALE";
+    }
+  }
   return null;
+}
+
+export function isDispatchCandidateVersionCurrent(
+  candidate: Pick<DispatchCandidate, "inputVersion" | "applicationInputVersion">,
+): boolean {
+  return candidate.inputVersion === candidate.applicationInputVersion;
+}
+
+export type DocumentSnapshotEntry = {
+  id: string;
+  type: string;
+  updatedAt: string;
+};
+
+function parseDocumentSnapshot(value: unknown): DocumentSnapshotEntry[] | null {
+  if (!Array.isArray(value)) return null;
+  const entries: DocumentSnapshotEntry[] = [];
+  const ids = new Set<string>();
+  for (const item of value) {
+    if (
+      !isRecord(item) ||
+      typeof item.id !== "string" ||
+      !item.id ||
+      typeof item.type !== "string" ||
+      typeof item.updatedAt !== "string" ||
+      !Number.isFinite(Date.parse(item.updatedAt)) ||
+      ids.has(item.id)
+    ) {
+      return null;
+    }
+    ids.add(item.id);
+    entries.push({
+      id: item.id,
+      type: item.type,
+      updatedAt: new Date(item.updatedAt).toISOString(),
+    });
+  }
+  return entries;
+}
+
+function sameDocumentSnapshot(
+  expected: readonly DocumentSnapshotEntry[],
+  actual: readonly DocumentSnapshotEntry[],
+): boolean {
+  if (expected.length !== actual.length) return false;
+  const normalize = (entries: readonly DocumentSnapshotEntry[]) =>
+    [...entries]
+      .map((entry) => ({
+        ...entry,
+        updatedAt: new Date(entry.updatedAt).toISOString(),
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id));
+  return JSON.stringify(normalize(expected)) === JSON.stringify(normalize(actual));
 }
 
 export async function claimCandidateWithCompareAndSet(
@@ -157,6 +234,49 @@ export async function claimCandidateWithCompareAndSet(
 ): Promise<"claimed" | "stale" | "already_claimed"> {
   if (getDispatchCandidateStaleness(candidate)) return "stale";
   return (await compareAndSet()) ? "claimed" : "already_claimed";
+}
+
+export async function claimTargetedCandidate(
+  expectedJobId: string,
+  expectedApplicationId: string,
+  candidate: DispatchCandidate,
+  isProduction: boolean,
+  compareAndSet: () => Promise<boolean>,
+): Promise<
+  | { kind: "claimed" }
+  | { kind: "already_claimed" }
+  | { kind: "association_mismatch" }
+  | { kind: "stale"; code: string }
+  | { kind: "invalid"; code: string }
+  | { kind: "synthetic_blocked" }
+> {
+  if (
+    candidate.jobId !== expectedJobId ||
+    candidate.applicationId !== expectedApplicationId
+  ) {
+    return { kind: "association_mismatch" };
+  }
+  if (isProduction && candidate.isSynthetic) {
+    return { kind: "synthetic_blocked" };
+  }
+  const staleness = getDispatchCandidateStaleness(candidate);
+  if (staleness) return { kind: "stale", code: staleness };
+  if (candidate.documentSnapshot == null) {
+    return { kind: "invalid", code: "DOCUMENT_SNAPSHOT_MISSING" };
+  }
+
+  try {
+    prepareAiVerificationInput(candidate);
+  } catch (error) {
+    if (error instanceof DispatchPreparationError) {
+      return { kind: "invalid", code: error.code };
+    }
+    throw error;
+  }
+
+  return (await compareAndSet())
+    ? { kind: "claimed" }
+    : { kind: "already_claimed" };
 }
 
 function validatePolicySnapshot(
@@ -177,7 +297,8 @@ function validatePolicySnapshot(
     typeof value.publishedById !== "string" ||
     !value.publishedById ||
     typeof value.publishedAt !== "string" ||
-    !Number.isFinite(Date.parse(value.publishedAt))
+    !Number.isFinite(Date.parse(value.publishedAt)) ||
+    (value.isSynthetic !== undefined && typeof value.isSynthetic !== "boolean")
   ) {
     throw new DispatchPreparationError("POLICY_SNAPSHOT_INVALID");
   }
@@ -198,6 +319,7 @@ function validatePolicySnapshot(
     policyId,
     schemeId,
     policyVersion: value.policyVersion,
+    isSynthetic: value.isSynthetic === true,
     eligibilityCriteria: validated.value.eligibilityCriteria,
     requiredDocumentTypes: validated.value.requiredDocumentTypes,
     aiEligibleDocumentTypes: validated.value.aiEligibleDocumentTypes,
@@ -212,21 +334,12 @@ function readApplicationValue(
   applicationData: Record<string, unknown>,
   path: string,
 ): unknown {
-  const [group, field] = path.split(".");
-  const groupValue = applicationData[group];
-  return isRecord(groupValue) ? groupValue[field] : undefined;
-}
-
-function setProjectedValue(
-  output: Record<string, unknown>,
-  path: string,
-  value: string | number,
-): void {
-  const [group, field] = path.split(".");
-  const currentGroup = output[group];
-  const nested = isRecord(currentGroup) ? currentGroup : {};
-  nested[field] = value;
-  output[group] = nested;
+  let value: unknown = applicationData;
+  for (const segment of path.split(".")) {
+    if (!isRecord(value)) return undefined;
+    value = value[segment];
+  }
+  return value;
 }
 
 function isValidDate(value: string): boolean {
@@ -237,7 +350,7 @@ function isValidDate(value: string): boolean {
 
 export function projectApplicationDataForCriteria(
   applicationData: unknown,
-  policy: VerificationPolicySnapshot,
+  policy: DeepReadonly<VerificationPolicySnapshot>,
 ): Record<string, unknown> {
   if (!isRecord(applicationData)) {
     throw new DispatchPreparationError("APPLICATION_DATA_INVALID");
@@ -258,13 +371,13 @@ export function projectApplicationDataForCriteria(
       if (!Number.isFinite(numberValue)) {
         throw new DispatchPreparationError("CRITERION_VALUE_MISSING_OR_INVALID");
       }
-      setProjectedValue(projected, path, numberValue);
+      projected[criterion.field] = numberValue;
     } else if (
       typeof rawValue === "string" &&
       rawValue.trim() &&
       (valueType !== "date" || isValidDate(rawValue))
     ) {
-      setProjectedValue(projected, path, rawValue);
+      projected[criterion.field] = rawValue;
     } else {
       throw new DispatchPreparationError("CRITERION_VALUE_MISSING_OR_INVALID");
     }
@@ -313,6 +426,12 @@ export function prepareAiVerificationInput(
     candidate.applicationSchemeId,
     candidate.policySnapshot,
   );
+  if (
+    candidate.isSynthetic !== undefined &&
+    candidate.isSynthetic !== policy.isSynthetic
+  ) {
+    throw new DispatchPreparationError("POLICY_SYNTHETIC_MARKER_MISMATCH");
+  }
   const documents = selectAiEligibleDocuments(candidate.documents, policy);
   return {
     applicationId: candidate.applicationId,

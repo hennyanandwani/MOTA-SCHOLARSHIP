@@ -29,7 +29,11 @@ function isSchemePayload(value: unknown): value is SchemePayload {
 const fieldClass =
   "mt-1.5 min-h-10 w-full rounded-lg border border-[#DCE3EC] bg-white px-3 py-2 text-sm text-[#172033] outline-none focus:border-[#2563A8] focus:ring-2 focus:ring-blue-100";
 
-export function DatabaseSchemeManagement() {
+export function DatabaseSchemeManagement({
+  allowSyntheticTestPolicy = false,
+}: {
+  allowSyntheticTestPolicy?: boolean;
+}) {
   const [schemes, setSchemes] = useState<SchemeRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -228,7 +232,11 @@ export function DatabaseSchemeManagement() {
                     </button>
                   </div>
                 </div>
-                <ScholarshipPolicyDisclosure schemeId={scheme.id} schemeName={scheme.name} />
+                <ScholarshipPolicyDisclosure
+                  schemeId={scheme.id}
+                  schemeName={scheme.name}
+                  allowSyntheticTestPolicy={allowSyntheticTestPolicy}
+                />
               </li>
             ))}
           </ul>

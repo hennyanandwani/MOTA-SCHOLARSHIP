@@ -18,6 +18,7 @@ export type AdminApplicationDetail = {
   submittedAt: string | null;
   updatedAt: string;
   aiVerificationStatus: AiVerificationStatus;
+  aiInputVersion: number;
   aiAttemptCount: number;
   aiEligibility: boolean | null;
   aiExplanation: string | null;
@@ -26,6 +27,28 @@ export type AdminApplicationDetail = {
   aiCompletedAt: string | null;
   manualReviewStatus: ManualReviewStatus;
   scheme: { id: string; name: string; type: string };
+  verificationPolicies: {
+    id: string;
+    version: number;
+    isSynthetic: boolean;
+    requiredDocumentTypes: DocumentType[];
+    aiEligibleDocumentTypes: DocumentType[];
+  }[];
+  aiVerificationJobs: {
+    id: string;
+    inputVersion: number;
+    status: string;
+    isSynthetic: boolean;
+    policyId: string | null;
+    policyVersion: number | null;
+    requestReason: string | null;
+    requesterName: string | null;
+    attemptCount: number;
+    outcome: string | null;
+    lastErrorCode: string | null;
+    createdAt: string;
+    completedAt: string | null;
+  }[];
   applicant: {
     name: string;
     email: string;
@@ -50,6 +73,7 @@ export type AdminApplicationDetail = {
     verificationStatus: VerificationStatus;
     verificationRemarks: string | null;
     createdAt: string;
+    updatedAt: string;
     verificationEvents: {
       id: string;
       previousStatus: VerificationStatus;
@@ -133,6 +157,7 @@ export async function getAdminApplicationSummaries(): Promise<AdminApplicationSu
       submittedAt: true,
       updatedAt: true,
       aiVerificationStatus: true,
+      aiInputVersion: true,
       aiAttemptCount: true,
       manualReviewStatus: true,
       formData: true,
@@ -224,6 +249,7 @@ export async function getAdminApplicationDetail(
       submittedAt: true,
       updatedAt: true,
       aiVerificationStatus: true,
+      aiInputVersion: true,
       aiAttemptCount: true,
       aiEligibility: true,
       aiExplanation: true,
@@ -234,7 +260,44 @@ export async function getAdminApplicationDetail(
       formData: true,
       aiConfidence: true,
       aiRemarks: true,
-      scheme: { select: { id: true, name: true, type: true } },
+      scheme: {
+        select: {
+          id: true,
+          name: true,
+          type: true,
+          verificationPolicies: {
+            where: { status: "PUBLISHED" },
+            orderBy: { version: "desc" },
+            take: 50,
+            select: {
+              id: true,
+              version: true,
+              isSynthetic: true,
+              requiredDocumentTypes: true,
+              aiEligibleDocumentTypes: true,
+            },
+          },
+        },
+      },
+      aiVerificationJobs: {
+        orderBy: { inputVersion: "desc" },
+        take: 20,
+        select: {
+          id: true,
+          inputVersion: true,
+          status: true,
+          isSynthetic: true,
+          policyId: true,
+          policy: { select: { version: true } },
+          requestReason: true,
+          requestedBy: { select: { fullName: true } },
+          attemptCount: true,
+          outcome: true,
+          lastErrorCode: true,
+          createdAt: true,
+          completedAt: true,
+        },
+      },
       student: {
         select: {
           rollNumber: true,
@@ -257,6 +320,7 @@ export async function getAdminApplicationDetail(
           verificationStatus: true,
           verificationRemarks: true,
           createdAt: true,
+          updatedAt: true,
           verificationEvents: {
             orderBy: { createdAt: 'desc' },
             select: {
@@ -335,6 +399,7 @@ export async function getAdminApplicationDetail(
     submittedAt: application.submittedAt?.toISOString() ?? null,
     updatedAt: application.updatedAt.toISOString(),
     aiVerificationStatus: application.aiVerificationStatus,
+    aiInputVersion: application.aiInputVersion,
     aiAttemptCount: application.aiAttemptCount,
     aiEligibility: application.aiEligibility,
     aiExplanation: application.aiExplanation,
@@ -342,7 +407,27 @@ export async function getAdminApplicationDetail(
     aiModelVersion: application.aiModelVersion,
     aiCompletedAt: application.aiCompletedAt?.toISOString() ?? null,
     manualReviewStatus: application.manualReviewStatus,
-    scheme: application.scheme,
+    scheme: {
+      id: application.scheme.id,
+      name: application.scheme.name,
+      type: application.scheme.type,
+    },
+    verificationPolicies: application.scheme.verificationPolicies,
+    aiVerificationJobs: application.aiVerificationJobs.map((job) => ({
+      id: job.id,
+      inputVersion: job.inputVersion,
+      status: job.status,
+      isSynthetic: job.isSynthetic,
+      policyId: job.policyId,
+      policyVersion: job.policy?.version ?? null,
+      requestReason: job.requestReason,
+      requesterName: job.requestedBy?.fullName ?? null,
+      attemptCount: job.attemptCount,
+      outcome: job.outcome,
+      lastErrorCode: job.lastErrorCode,
+      createdAt: job.createdAt.toISOString(),
+      completedAt: job.completedAt?.toISOString() ?? null,
+    })),
     applicant: {
       name: application.student.user.fullName,
       email: application.student.user.email,
@@ -361,6 +446,7 @@ export async function getAdminApplicationDetail(
     documents: application.documents.map((document) => ({
       ...document,
       createdAt: document.createdAt.toISOString(),
+      updatedAt: document.updatedAt.toISOString(),
       verificationEvents: document.verificationEvents.map((event) => ({
         ...event,
         reviewerName: event.reviewer?.fullName ?? null,

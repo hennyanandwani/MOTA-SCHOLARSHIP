@@ -7,8 +7,9 @@ import {
   SelectionOutcome,
 } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { syntheticDecisionBlocked } from "@/lib/syntheticVerificationPolicy";
 import { requireAdmin } from "@/lib/adminAuth";
-import { requiredApplicationDocumentTypes } from "@/lib/applicationRequirements";
+import { getRequiredDocumentTypesFromPolicySnapshot } from "@/lib/applicationRequirements";
 import { getSelectionTransitionFailure } from "@/lib/phase6Workflow";
 
 type RouteContext = { params: Promise<{ applicationNumber: string }> };
@@ -65,6 +66,11 @@ export async function PATCH(request: Request, { params }: RouteContext) {
           aiAttemptCount: true,
           manualReviewStatus: true,
           aiInputVersion: true,
+          aiVerificationJobs: {
+            orderBy: { inputVersion: "desc" },
+            take: 1,
+            select: { inputVersion: true, isSynthetic: true, policySnapshot: true },
+          },
           documents: { select: { type: true, verificationStatus: true } },
           selectionDecisions: {
             orderBy: { createdAt: "desc" },
@@ -79,6 +85,21 @@ export async function PATCH(request: Request, { params }: RouteContext) {
         },
       });
       if (!application) return { kind: "not_found" as const };
+      const latestJob = application.aiVerificationJobs[0];
+      const requiredDocumentTypes = getRequiredDocumentTypesFromPolicySnapshot(
+        latestJob?.inputVersion === application.aiInputVersion
+          ? latestJob.policySnapshot
+          : null,
+      );
+      if (
+        application.aiVerificationJobs[0]?.inputVersion === application.aiInputVersion &&
+        syntheticDecisionBlocked(
+          application.aiVerificationJobs[0]?.isSynthetic ||
+          application.aiVerificationJobs[0]?.policySnapshot,
+        )
+      ) {
+        return { kind: "invalid" as const, error: "Synthetic test policies cannot progress to scholarship selection." };
+      }
 
       const currentOutcome = application.selectionDecisions[0]?.outcome ?? null;
       const currentApproval = application.approvalDecisions[0]?.status ?? null;
@@ -89,7 +110,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
         aiAttemptCount: application.aiAttemptCount,
         manualReviewStatus: application.manualReviewStatus as ManualReviewStatus,
         documents: application.documents,
-        requiredDocumentTypes: requiredApplicationDocumentTypes,
+        requiredDocumentTypes,
         currentOutcome,
         expectedOutcome,
         nextOutcome,

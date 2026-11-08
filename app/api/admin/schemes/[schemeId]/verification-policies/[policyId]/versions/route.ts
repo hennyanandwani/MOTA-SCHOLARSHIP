@@ -60,6 +60,7 @@ export async function POST(_request: Request, { params }: RouteContext) {
         schemeId: source.schemeId,
         version: source.version,
         status: "PUBLISHED",
+        isSynthetic: source.isSynthetic,
         eligibilityCriteria: validation.value.eligibilityCriteria,
         requiredDocumentTypes:
           validation.value.requiredDocumentTypes as VerificationDocumentType[],

@@ -312,7 +312,7 @@ test("draft saves require an owned DRAFT final write and supplied IDs cannot fal
   assert.match(source, /if \(existingDraft\) \{/);
 });
 
-test("submission and document metadata writes lock the owned DRAFT application before reading or mutating", () => {
+test("submission and document metadata writes lock the owned application before reading or mutating", () => {
   const submitSource = readFileSync(
     join(
       process.cwd(),
@@ -337,6 +337,10 @@ test("submission and document metadata writes lock the owned DRAFT application b
   );
 
   assert.ok(submitLockPosition >= 0 && submitLockPosition < submitReadPosition);
+  assert.match(
+    submitSource,
+    /where:\s*\{\s*id:\s*applicationId,\s*studentId,\s*status:\s*ApplicationStatus\.DRAFT/,
+  );
   assert.ok(documentLockPosition >= 0 && documentLockPosition < documentWritePosition);
   assert.match(submitSource, /studentId,\s*status:\s*ApplicationStatus\.DRAFT/);
   assert.match(documentSource, /studentId:\s*user\.student\.id,\s*status:\s*ApplicationStatus\.DRAFT/);
@@ -408,6 +412,33 @@ test("submission validation rejects missing required documents", () => {
   });
 });
 
+test("submission validation blocks a missing document from a three-document policy", () => {
+  const requiredDocumentTypes = [
+    "INCOME_CERTIFICATE",
+    "MARKSHEET",
+    "CASTE_CERTIFICATE",
+  ];
+  const input = validSubmissionInput();
+  const failure = getSubmissionValidationFailure({
+    ...input,
+    requiredDocumentTypes,
+    documents: requiredDocumentTypes.slice(0, 2).map((type) => ({
+      type,
+      verificationStatus: "VERIFIED",
+    })),
+    documentLabels: {
+      INCOME_CERTIFICATE: "Income Certificate",
+      MARKSHEET: "Academic Marksheet",
+      CASTE_CERTIFICATE: "ST Certificate",
+    },
+  });
+
+  assert.deepEqual(failure, {
+    kind: "missing_documents",
+    documents: ["ST Certificate"],
+  });
+});
+
 test("submission validation rejects failed step, account confirmation, and declarations", () => {
   const failure = getSubmissionValidationFailure({
     ...validSubmissionInput(),
@@ -454,7 +485,10 @@ test("valid submission remains eligible for the existing SUBMITTED transition", 
     "utf8",
   );
   assert.match(source, /status:\s*ApplicationStatus\.SUBMITTED/);
-  assert.match(source, /return \{ kind: "submitted", application: submitted \}/);
+  assert.match(
+    source,
+    /return \{ kind: "submitted", application: submitted, jobId: job\.id \}/,
+  );
 });
 
 test("submission handler catches only its typed transaction abort and rethrows other errors", () => {

@@ -9,9 +9,10 @@ import {
   SelectionOutcome,
 } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { syntheticDecisionBlocked } from "@/lib/syntheticVerificationPolicy";
 import { requireApprover } from "@/lib/approverAuth";
 import { isAiOutcomeAvailableForManualReview } from "@/lib/adminWorkflow";
-import { requiredApplicationDocumentTypes } from "@/lib/applicationRequirements";
+import { getRequiredDocumentTypesFromPolicySnapshot } from "@/lib/applicationRequirements";
 import { canTransitionApproval } from "@/lib/phase6Workflow";
 
 type RouteContext = { params: Promise<{ applicationNumber: string }> };
@@ -67,6 +68,11 @@ export async function PATCH(request: Request, { params }: RouteContext) {
           aiAttemptCount: true,
           manualReviewStatus: true,
           aiInputVersion: true,
+          aiVerificationJobs: {
+            orderBy: { inputVersion: "desc" },
+            take: 1,
+            select: { inputVersion: true, isSynthetic: true, policySnapshot: true },
+          },
           documents: { select: { type: true, verificationStatus: true } },
           selectionDecisions: {
             orderBy: { createdAt: "desc" },
@@ -81,6 +87,21 @@ export async function PATCH(request: Request, { params }: RouteContext) {
         },
       });
       if (!application) return { kind: "not_found" as const };
+      const latestJob = application.aiVerificationJobs[0];
+      const requiredDocumentTypes = getRequiredDocumentTypesFromPolicySnapshot(
+        latestJob?.inputVersion === application.aiInputVersion
+          ? latestJob.policySnapshot
+          : null,
+      );
+      if (
+        application.aiVerificationJobs[0]?.inputVersion === application.aiInputVersion &&
+        syntheticDecisionBlocked(
+          application.aiVerificationJobs[0]?.isSynthetic ||
+          application.aiVerificationJobs[0]?.policySnapshot,
+        )
+      ) {
+        return { kind: "prerequisites" as const };
+      }
       if (!application.submittedAt || application.status !== ApplicationStatus.RECOMMENDED_FOR_APPROVAL) {
         return { kind: "not_reviewable" as const };
       }
@@ -95,7 +116,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
         return { kind: "prerequisites" as const };
       }
       if (
-        requiredApplicationDocumentTypes.some(
+        requiredDocumentTypes.some(
           (type) =>
             !application.documents.some(
               (document) =>

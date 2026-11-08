@@ -15,6 +15,10 @@ const supportedImageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 const supportedDocumentTypes = new Set<string>(
   SUPPORTED_POLICY_DOCUMENT_TYPES,
 );
+const fastApiDocumentTypeByPrismaType: Readonly<Record<string, string>> = {
+  INCOME_CERTIFICATE: "INCOME_CERT",
+  CASTE_CERTIFICATE: "ST_CASTE_CERT",
+};
 const maximumResponseBytes = 2 * 1024 * 1024;
 
 export type AiVerificationOutcome =
@@ -139,6 +143,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   }
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
+}
+
+function toFastApiDocumentType(type: string): string {
+  return fastApiDocumentTypeByPrismaType[type] ?? type;
 }
 
 function isJsonValue(value: unknown, depth = 0): boolean {
@@ -498,6 +506,10 @@ export function createAiVerificationAdapter(
           (aiDocumentPriority.get(left.type) ?? Number.MAX_SAFE_INTEGER) -
           (aiDocumentPriority.get(right.type) ?? Number.MAX_SAFE_INTEGER),
       );
+      const requestDocuments = storedDocuments.map((document) => ({
+        document,
+        type: toFastApiDocumentType(document.type),
+      }));
 
       const form = new FormData();
       form.append(
@@ -510,14 +522,14 @@ export function createAiVerificationAdapter(
       form.append("criteria", JSON.stringify(input.criteria));
       form.append(
         "required_document_types",
-        JSON.stringify(input.requiredDocumentTypes),
+        JSON.stringify(input.requiredDocumentTypes.map(toFastApiDocumentType)),
       );
       form.append(
         "document_types",
-        JSON.stringify(storedDocuments.map((document) => document.type)),
+        JSON.stringify(requestDocuments.map(({ type }) => type)),
       );
 
-      for (const [index, document] of storedDocuments.entries()) {
+      for (const [index, { document }] of requestDocuments.entries()) {
         if (
           !Number.isSafeInteger(document.sizeBytes) ||
           document.sizeBytes < 1 ||

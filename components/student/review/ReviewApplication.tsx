@@ -48,16 +48,24 @@ type ReviewApplicationProps = {
   schemeId: string;
   schemeName: string;
   schemeType: SchemeType;
+  requiredDocumentTypes: readonly string[];
 };
 
 const buttonBase = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563A8] focus-visible:ring-offset-2';
 const stepNames = ['Personal', 'Academic', 'Family & Bank', 'Documents', 'Review & Submit'];
 
-export function ReviewApplication({ schemeId, schemeName, schemeType }: ReviewApplicationProps) {
+export function ReviewApplication({
+  schemeId,
+  schemeName,
+  schemeType,
+  requiredDocumentTypes,
+}: ReviewApplicationProps) {
   const router = useRouter();
   const { currentSettings } = useStudentSettings();
   const [application, setApplication] = useState<ApplicationData>(createEmptyApplicationData);
-  const [documents, setDocuments] = useState<ApplicationDocument[]>(createEmptyApplicationDocuments);
+  const [documents, setDocuments] = useState<ApplicationDocument[]>(
+    () => createEmptyApplicationDocuments(requiredDocumentTypes),
+  );
   const [lastSaved, setLastSaved] = useState('');
   const [declarations, setDeclarations] = useState<ReviewDeclarations>(initialReviewDeclarations);
   const [applicationId, setApplicationId] = useState('');
@@ -108,7 +116,7 @@ export function ReviewApplication({ schemeId, schemeName, schemeType }: ReviewAp
         setApplication(restoredData);
         setDocuments(
           mergePersistedApplicationDocuments(
-            createEmptyApplicationDocuments(),
+            createEmptyApplicationDocuments(requiredDocumentTypes),
             draft.documents,
           ),
         );
@@ -143,7 +151,7 @@ export function ReviewApplication({ schemeId, schemeName, schemeType }: ReviewAp
     return () => {
       active = false;
     };
-  }, [schemeId]);
+  }, [requiredDocumentTypes, schemeId]);
 
   const fullName = [application.personal.firstName, application.personal.middleName, application.personal.lastName]
     .filter(Boolean)

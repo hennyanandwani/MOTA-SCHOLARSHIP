@@ -60,27 +60,34 @@ export async function PATCH(request: Request, { params }: RouteContext) {
 
   try {
     const policy = await prisma.$transaction(async (transaction) => {
+      const current = await transaction.scholarshipVerificationPolicy.findFirst({
+        where: { id: policyId, schemeId },
+        select: { status: true, isSynthetic: true },
+      });
+      if (!current) return { kind: "not_found" as const };
+      if (current.isSynthetic) return { kind: "synthetic_immutable" as const };
+      if (current.status !== "DRAFT") return { kind: "immutable" as const };
       const updated = await transaction.scholarshipVerificationPolicy.updateMany({
         where: { id: policyId, schemeId, status: "DRAFT" },
         data: buildUpdatedDraftPolicyData(validation.value),
       });
-      if (updated.count !== 1) return null;
-      return transaction.scholarshipVerificationPolicy.findUnique({
+      if (updated.count !== 1) return { kind: "immutable" as const };
+      const saved = await transaction.scholarshipVerificationPolicy.findUnique({
         where: { id: policyId },
         include: { publishedBy: { select: { id: true, fullName: true } } },
       });
+      return saved ? { kind: "updated" as const, policy: saved } : { kind: "not_found" as const };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-    if (!policy) {
-      const existing = await prisma.scholarshipVerificationPolicy.findFirst({
-        where: { id: policyId, schemeId },
-        select: { status: true },
-      });
-      if (!existing) {
-        return NextResponse.json({ error: "Scholarship policy not found.", code: "NOT_FOUND" }, { status: 404 });
-      }
+    if (policy.kind === "not_found") {
+      return NextResponse.json({ error: "Scholarship policy not found.", code: "NOT_FOUND" }, { status: 404 });
+    }
+    if (policy.kind === "synthetic_immutable") {
+      return NextResponse.json({ error: "The fixed synthetic test policy cannot be edited.", code: "SYNTHETIC_POLICY_IMMUTABLE" }, { status: 409 });
+    }
+    if (policy.kind === "immutable") {
       return NextResponse.json({ error: "Published policies are immutable. Create a new draft version.", code: "POLICY_IMMUTABLE" }, { status: 409 });
     }
-    return NextResponse.json({ policy });
+    return NextResponse.json({ policy: policy.policy });
   } catch (error) {
     if (isPolicyWriteConflict(error)) {
       return NextResponse.json({ error: "The policy changed concurrently. Refresh and try again.", code: "POLICY_CONFLICT" }, { status: 409 });

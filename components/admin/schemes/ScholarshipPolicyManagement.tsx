@@ -10,11 +10,16 @@ import {
   type CriteriaOperator,
   type VerificationDocumentType,
 } from "@/lib/scholarshipVerificationPolicy";
+import {
+  SYNTHETIC_POLICY_LABEL,
+  isSyntheticTestSchemeName,
+} from "@/lib/syntheticVerificationPolicy";
 
 type PolicyView = {
   id: string;
   version: number;
   status: "DRAFT" | "PUBLISHED";
+  isSynthetic: boolean;
   eligibilityCriteria: unknown;
   requiredDocumentTypes: string[];
   aiEligibleDocumentTypes: string[];
@@ -66,6 +71,7 @@ function isPolicy(value: unknown): value is PolicyView {
     typeof value.id === "string" &&
     typeof value.version === "number" &&
     (value.status === "DRAFT" || value.status === "PUBLISHED") &&
+    typeof value.isSynthetic === "boolean" &&
     Array.isArray(value.requiredDocumentTypes) &&
     value.requiredDocumentTypes.every((type) => typeof type === "string") &&
     Array.isArray(value.aiEligibleDocumentTypes) &&
@@ -183,9 +189,11 @@ function formatPublishedAt(value: string | null): string {
 export function ScholarshipPolicyManagement({
   schemeId,
   schemeName,
+  allowSyntheticTestPolicy = false,
 }: {
   schemeId: string;
   schemeName: string;
+  allowSyntheticTestPolicy?: boolean;
 }) {
   const [policies, setPolicies] = useState<PolicyView[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -194,6 +202,8 @@ export function ScholarshipPolicyManagement({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const canCreateTestPolicy =
+    allowSyntheticTestPolicy && isSyntheticTestSchemeName(schemeName);
 
   const selected = useMemo(
     () => policies.find((policy) => policy.id === selectedId) ?? null,
@@ -331,6 +341,31 @@ export function ScholarshipPolicyManagement({
     }
   }
 
+  async function createSyntheticDraft() {
+    setSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      const policy = parsePolicy(
+        await requestJson(
+          `/api/admin/schemes/${encodeURIComponent(schemeId)}/verification-policies/test-policy`,
+          "POST",
+        ),
+      );
+      if (!policy) throw new Error("The server returned an invalid synthetic policy.");
+      setNotice(`Synthetic test policy draft version ${policy.version} created.`);
+      await loadPolicies(policy.id);
+    } catch (createError) {
+      setError(
+        createError instanceof Error
+          ? createError.message
+          : "Unable to create the synthetic policy draft.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function createVersion() {
     if (!selected || selected.status !== "PUBLISHED") return;
     setSaving(true);
@@ -358,6 +393,33 @@ export function ScholarshipPolicyManagement({
   }
 
   async function savePolicy(publish: boolean) {
+    if (selected?.isSynthetic) {
+      if (!publish || !isDraft) return;
+      setSaving(true);
+      setError("");
+      setNotice("");
+      try {
+        const base = `/api/admin/schemes/${encodeURIComponent(schemeId)}/verification-policies`;
+        const published = parsePolicy(
+          await requestJson(
+            `${base}/${encodeURIComponent(selected.id)}/publish`,
+            "POST",
+          ),
+        );
+        if (!published) throw new Error("The server returned an invalid policy.");
+        setNotice(`Synthetic test policy version ${published.version} published.`);
+        await loadPolicies(published.id);
+      } catch (publishError) {
+        setError(
+          publishError instanceof Error
+            ? publishError.message
+            : "Unable to publish the synthetic test policy.",
+        );
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     if (!validateEditor(publish)) return;
     setSaving(true);
     setError("");
@@ -444,7 +506,7 @@ export function ScholarshipPolicyManagement({
     });
   }
 
-  const readOnly = !isDraft;
+  const readOnly = !isDraft || Boolean(selected?.isSynthetic);
 
   return (
     <section className="mt-4 rounded-xl border border-[#DCE3EC] bg-[#F8FAFC] p-4 sm:p-5" aria-label={`Verification policy for ${schemeName}`}>
@@ -458,6 +520,11 @@ export function ScholarshipPolicyManagement({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {canCreateTestPolicy && !policies.length && !loading && (
+            <button type="button" className={buttonClass} onClick={() => void createSyntheticDraft()} disabled={saving}>
+              <ShieldCheck size={14} aria-hidden="true" /> Create synthetic test policy
+            </button>
+          )}
           {!policies.length && !loading && (
             <button type="button" className={buttonClass} onClick={() => void createEmptyDraft()} disabled={saving}>
               <Plus size={14} aria-hidden="true" /> Create draft
@@ -493,7 +560,7 @@ export function ScholarshipPolicyManagement({
                 >
                   {policies.map((policy) => (
                     <option key={policy.id} value={policy.id}>
-                      Version {policy.version} · {policy.status}
+                      Version {policy.version} · {policy.status}{policy.isSynthetic ? " · SYNTHETIC TEST" : ""}
                     </option>
                   ))}
                 </select>
@@ -512,6 +579,11 @@ export function ScholarshipPolicyManagement({
             </p>
           ) : (
             <div className="mt-4 space-y-5">
+              {selected?.isSynthetic && (
+                <p role="note" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold leading-5 text-amber-950">
+                  {SYNTHETIC_POLICY_LABEL}. This fixed test fixture is never an official guideline or eligibility rule.
+                </p>
+              )}
               <fieldset disabled={readOnly || saving} className="space-y-3">
                 <legend className="text-xs font-bold uppercase tracking-wide text-[#64748B]">Eligibility criteria</legend>
                 <p className="text-xs text-[#64748B]">Use only eligibility terms verified against the official scholarship guideline.</p>
@@ -665,10 +737,16 @@ export function ScholarshipPolicyManagement({
                 )}
               </fieldset>
 
-              {readOnly ? (
+              {readOnly && !(selected?.isSynthetic && isDraft) ? (
                 <p className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-[#334155]">
                   Published version {selected?.version} is read-only. Create a new draft version to make changes.
                 </p>
+              ) : selected?.isSynthetic && isDraft ? (
+                <div className="flex flex-wrap gap-2 border-t border-[#DCE3EC] pt-4">
+                  <button type="button" className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-amber-300 bg-amber-100 px-4 text-xs font-semibold text-amber-950 hover:bg-amber-200 disabled:opacity-50" onClick={() => void savePolicy(true)} disabled={saving}>
+                    <ShieldCheck size={14} aria-hidden="true" /> Publish synthetic test policy
+                  </button>
+                </div>
               ) : (
                 <div className="flex flex-wrap gap-2 border-t border-[#DCE3EC] pt-4">
                   <button type="button" className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#173F7A] px-4 text-xs font-semibold text-white hover:bg-[#123362] disabled:opacity-50" onClick={() => void savePolicy(false)} disabled={saving}>
@@ -690,9 +768,11 @@ export function ScholarshipPolicyManagement({
 export function ScholarshipPolicyDisclosure({
   schemeId,
   schemeName,
+  allowSyntheticTestPolicy = false,
 }: {
   schemeId: string;
   schemeName: string;
+  allowSyntheticTestPolicy?: boolean;
 }) {
   const [opened, setOpened] = useState(false);
   return (
@@ -704,7 +784,11 @@ export function ScholarshipPolicyDisclosure({
         Manage verification policy
       </summary>
       {opened && (
-        <ScholarshipPolicyManagement schemeId={schemeId} schemeName={schemeName} />
+        <ScholarshipPolicyManagement
+          schemeId={schemeId}
+          schemeName={schemeName}
+          allowSyntheticTestPolicy={allowSyntheticTestPolicy}
+        />
       )}
     </details>
   );

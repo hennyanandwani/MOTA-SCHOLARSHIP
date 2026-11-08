@@ -124,17 +124,115 @@ test("builds the confirmed multipart request and preserves the job idempotency k
     assert.deepEqual(JSON.parse(String(form.get("criteria"))), criteria);
     assert.deepEqual(
       JSON.parse(String(form.get("required_document_types"))),
-      requiredApplicationDocumentTypes,
+      requiredApplicationDocumentTypes.map((type) =>
+        type === "INCOME_CERTIFICATE"
+          ? "INCOME_CERT"
+          : type === "CASTE_CERTIFICATE"
+            ? "ST_CASTE_CERT"
+            : type,
+      ),
     );
     assert.deepEqual(
       JSON.parse(String(form.get("document_types"))),
-      ["INCOME_CERTIFICATE"],
+      ["INCOME_CERT"],
     );
     const uploaded = form.getAll("documents");
     assert.equal(uploaded.length, 1);
     assert.equal((uploaded[0] as File).type, "image/png");
     assert.equal((uploaded[0] as File).name, "document-1.png");
   }
+});
+
+test("maps the supported Prisma document types at the FastAPI request boundary", async () => {
+  const documents: AiVerificationStoredDocument[] = [
+    { ...storedDocument, id: "income", type: "INCOME_CERTIFICATE", storagePath: "income.png" },
+    { ...storedDocument, id: "caste", type: "CASTE_CERTIFICATE", storagePath: "caste.png" },
+    { ...storedDocument, id: "marksheet", type: "MARKSHEET", storagePath: "marksheet.png" },
+  ];
+  const selectedTypes = [
+    "INCOME_CERTIFICATE",
+    "CASTE_CERTIFICATE",
+    "MARKSHEET",
+  ];
+  let uploadedTypes: string[] = [];
+  let uploadedRequiredTypes: string[] = [];
+  let uploadedFiles: File[] = [];
+  const downloadedPaths: string[] = [];
+  const client = adapter({
+    findDocuments: async (_applicationId, documentIds) =>
+      documentIds.flatMap((id) =>
+        documents.filter((document) => document.id === id),
+      ),
+    downloadDocument: async (path) => {
+      downloadedPaths.push(path);
+      return png();
+    },
+    fetcher: async (_url, init) => {
+      const form = init?.body as FormData;
+      uploadedTypes = JSON.parse(String(form.get("document_types")));
+      uploadedRequiredTypes = JSON.parse(
+        String(form.get("required_document_types")),
+      );
+      uploadedFiles = form.getAll("documents").map((file) => file as File);
+      return jsonResponse(successBody);
+    },
+  });
+
+  await client.verify({
+    ...input,
+    requiredDocumentTypes: selectedTypes,
+    aiEligibleDocumentTypes: selectedTypes,
+    documentIds: ["marksheet", "caste", "income"],
+  });
+
+  assert.deepEqual(uploadedTypes, ["INCOME_CERT", "ST_CASTE_CERT", "MARKSHEET"]);
+  assert.deepEqual(uploadedRequiredTypes, uploadedTypes);
+  assert.deepEqual(downloadedPaths, ["income.png", "caste.png", "marksheet.png"]);
+  assert.deepEqual(
+    uploadedFiles.map((file) => file.name),
+    ["document-1.png", "document-2.png", "document-3.png"],
+  );
+  assert.equal(uploadedFiles.length, uploadedTypes.length);
+  assert.deepEqual(
+    documents.map((document) => document.type),
+    ["INCOME_CERTIFICATE", "CASTE_CERTIFICATE", "MARKSHEET"],
+  );
+});
+
+test("continues rejecting unknown and unsupported document types before storage access", async () => {
+  let lookedUpDocuments = false;
+  let fetched = false;
+  const client = adapter({
+    findDocuments: async () => {
+      lookedUpDocuments = true;
+      return [storedDocument];
+    },
+    fetcher: async () => {
+      fetched = true;
+      return jsonResponse(successBody);
+    },
+  });
+
+  await assert.rejects(
+    client.verify({
+      ...input,
+      aiEligibleDocumentTypes: ["UNRECOGNIZED_DOCUMENT"],
+    }),
+    (error: unknown) =>
+      error instanceof AiVerificationAdapterError &&
+      error.code === "DOCUMENTS_UNSUPPORTED",
+  );
+  await assert.rejects(
+    client.verify({
+      ...input,
+      requiredDocumentTypes: ["UNRECOGNIZED_DOCUMENT"],
+    }),
+    (error: unknown) =>
+      error instanceof AiVerificationAdapterError &&
+      error.code === "DOCUMENTS_INVALID",
+  );
+  assert.equal(lookedUpDocuments, false);
+  assert.equal(fetched, false);
 });
 
 test("does not submit without authoritative criteria", async () => {
@@ -200,7 +298,13 @@ test("rejects documents not owned by the requested application before storage ac
         uploadedTypes = JSON.parse(String(form.get("document_types")));
         assert.deepEqual(
           JSON.parse(String(form.get("required_document_types"))),
-          requiredApplicationDocumentTypes,
+          requiredApplicationDocumentTypes.map((type) =>
+            type === "INCOME_CERTIFICATE"
+              ? "INCOME_CERT"
+              : type === "CASTE_CERTIFICATE"
+                ? "ST_CASTE_CERT"
+                : type,
+          ),
         );
         assert.equal(form.getAll("documents").length, 1);
         return jsonResponse(successBody);
@@ -209,7 +313,7 @@ test("rejects documents not owned by the requested application before storage ac
 
     await client.verify(input);
     assert.deepEqual(lookedUp, [["document-1"]]);
-    assert.deepEqual(uploadedTypes, ["INCOME_CERTIFICATE"]);
+    assert.deepEqual(uploadedTypes, ["INCOME_CERT"]);
 
     await assert.rejects(
       client.verify({
@@ -255,7 +359,12 @@ test("rejects documents not owned by the requested application before storage ac
       aiEligibleDocumentTypes: priorityTypes,
       documentIds: documents.map((document) => document.id).reverse(),
     });
-    assert.deepEqual(uploadedTypes, priorityTypes);
+    assert.deepEqual(uploadedTypes, [
+      "INCOME_CERT",
+      "IDENTITY_PROOF",
+      "ST_CASTE_CERT",
+      "MARKSHEET",
+    ]);
     assert.equal(uploadedCount, priorityTypes.length);
   });
 

@@ -27,6 +27,7 @@ export default async function DocumentUploadPage({
         <DocumentUpload
           schemeId={scheme.id}
           schemeName={scheme.name}
+          requiredDocumentTypes={scheme.requiredDocumentTypes}
         />
       </main>
     </div>

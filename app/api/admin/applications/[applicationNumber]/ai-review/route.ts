@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/adminAuth";
 import { buildAiJobIdempotencyKey } from "@/lib/aiVerificationContract";
 import { buildAiVerificationJobPolicyData } from "@/lib/scholarshipVerificationPolicy";
+import { canCreateSyntheticPolicy } from "@/lib/syntheticVerificationPolicy";
 
 type RouteContext = { params: Promise<{ applicationNumber: string }> };
 
@@ -47,6 +48,7 @@ export async function POST(request: Request, { params }: RouteContext) {
           id: true,
           schemeId: true,
           status: true,
+          scheme: { select: { name: true } },
           submittedAt: true,
           aiInputVersion: true,
           aiVerificationStatus: true,
@@ -83,9 +85,19 @@ export async function POST(request: Request, { params }: RouteContext) {
           guidelineRevision: true,
           publishedById: true,
           publishedAt: true,
+          isSynthetic: true,
         },
       });
       const policyJobData = buildAiVerificationJobPolicyData(publishedPolicy);
+      if (
+        policyJobData.isSynthetic &&
+        (!canCreateSyntheticPolicy(process.env.NODE_ENV, application.scheme.name) ||
+          await transaction.scholarshipVerificationPolicy.count({
+            where: { schemeId: application.schemeId, isSynthetic: false },
+          }) > 0)
+      ) {
+        return { kind: "synthetic_blocked" as const };
+      }
 
       const nextVersion = application.aiInputVersion + 1;
       const updated = await transaction.scholarshipApplication.updateMany({
@@ -129,6 +141,8 @@ export async function POST(request: Request, { params }: RouteContext) {
         return NextResponse.json({ error: "Only submitted applications can be reconsidered." }, { status: 409 });
       case "invalid_state":
         return NextResponse.json({ error: "This AI retry or reconsideration is not allowed from the current state." }, { status: 409 });
+      case "synthetic_blocked":
+        return NextResponse.json({ error: "Synthetic test policy is unavailable outside an isolated local test scheme.", code: "SYNTHETIC_POLICY_BLOCKED" }, { status: 403 });
       case "conflict":
         return NextResponse.json({ error: "Application changed while the request was being recorded." }, { status: 409 });
       case "queued":

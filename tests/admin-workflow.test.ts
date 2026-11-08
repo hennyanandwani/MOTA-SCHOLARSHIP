@@ -86,6 +86,38 @@ test("recommendation and approval require all required persisted documents verif
   );
 });
 
+test("review accepts exactly the submitted policy requirements with the legacy fallback unchanged", () => {
+  const schemeRequiredDocuments = [
+    DocumentType.INCOME_CERTIFICATE,
+    DocumentType.MARKSHEET,
+    DocumentType.CASTE_CERTIFICATE,
+  ];
+  const verified = schemeRequiredDocuments.map((type) => ({
+    type,
+    verificationStatus: VerificationStatus.VERIFIED,
+  }));
+  assert.equal(
+    areRequiredApplicationDocumentsVerified(verified, schemeRequiredDocuments),
+    true,
+  );
+  assert.equal(
+    getApplicationDecisionFailure(
+      ApplicationStatus.PENDING_VERIFICATION,
+      ApplicationStatus.RECOMMENDED_FOR_APPROVAL,
+      verified,
+      schemeRequiredDocuments,
+    ),
+    null,
+  );
+  assert.equal(
+    areRequiredApplicationDocumentsVerified(
+      verified,
+      requiredApplicationDocumentTypes,
+    ),
+    false,
+  );
+});
+
 test("application decisions follow explicit transitions and cannot skip verification", () => {
   const verified = verifiedRequiredDocuments();
   assert.deepEqual(
@@ -112,6 +144,20 @@ test("application decisions follow explicit transitions and cannot skip verifica
     ),
     "invalid_transition",
   );
+});
+
+test("Admin and Approver routes use the current AI job policy snapshot with a legacy fallback", () => {
+  const routeFiles = [
+    "app/api/admin/applications/[applicationNumber]/selection/route.ts",
+    "app/api/admin/applications/[applicationNumber]/decision/route.ts",
+    "app/api/approver/applications/[applicationNumber]/approval/route.ts",
+  ];
+  for (const path of routeFiles) {
+    const source = readFileSync(join(process.cwd(), path), "utf8");
+    assert.match(source, /getRequiredDocumentTypesFromPolicySnapshot/);
+    assert.match(source, /latestJob\?\.inputVersion === application\.aiInputVersion/);
+    assert.match(source, /policySnapshot/);
+  }
 });
 
 test("document verification has explicit transitions and stale conflicts are detectable", () => {

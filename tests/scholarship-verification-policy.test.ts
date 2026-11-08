@@ -54,6 +54,7 @@ const publishedPolicy: ScholarshipVerificationPolicyRecord = {
   schemeId: "scheme-1",
   version: 3,
   status: "PUBLISHED",
+  isSynthetic: false,
   eligibilityCriteria: [
     {
       field: "annual_income",

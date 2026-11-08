@@ -15,6 +15,12 @@ import {
   MAX_APPLICATION_DOCUMENT_SIZE,
 } from "../lib/applicationDocumentValidation";
 import {
+  getEffectiveRequiredDocumentTypes,
+  getRequiredDocumentTypesFromPolicySnapshot,
+  requiredApplicationDocumentTypes,
+} from "../lib/applicationRequirements";
+import { createEmptyApplicationDocuments } from "../lib/applicationDocuments";
+import {
   getOwnedApplicationScope,
   isSerializableTransactionConflict,
 } from "../lib/applicationConcurrency";
@@ -54,6 +60,66 @@ test("new application prefill uses persisted profile values and leaves unsupport
   assert.equal(data.family.annualIncome, "120000.00");
   assert.equal(data.personal.identityNumber, "");
   assert.equal(data.bank.accountNumber, "");
+});
+
+test("scheme-specific required documents drive student UI while legacy schemes keep all seven", () => {
+  const schemeTypes = [
+    "INCOME_CERTIFICATE",
+    "MARKSHEET",
+    "CASTE_CERTIFICATE",
+  ];
+  assert.deepEqual(getEffectiveRequiredDocumentTypes(schemeTypes), schemeTypes);
+  assert.deepEqual(
+    createEmptyApplicationDocuments(schemeTypes).map((document) => document.id),
+    ["st-certificate", "income-certificate", "previous-marksheet"],
+  );
+  assert.deepEqual(
+    getEffectiveRequiredDocumentTypes(null),
+    requiredApplicationDocumentTypes,
+  );
+  assert.deepEqual(
+    getRequiredDocumentTypesFromPolicySnapshot({
+      schemaVersion: 1,
+      requiredDocumentTypes: schemeTypes,
+    }),
+    schemeTypes,
+  );
+  assert.deepEqual(getRequiredDocumentTypesFromPolicySnapshot(null), requiredApplicationDocumentTypes);
+
+  const workflowPage = readFileSync(
+    join(process.cwd(), "app/student/schemes/[schemeId]/apply/documents/page.tsx"),
+    "utf8",
+  );
+  const reviewPage = readFileSync(
+    join(process.cwd(), "app/student/schemes/[schemeId]/apply/review/page.tsx"),
+    "utf8",
+  );
+  const wizard = readFileSync(
+    join(process.cwd(), "components/student/application/ApplicationWizard.tsx"),
+    "utf8",
+  );
+  assert.match(workflowPage, /requiredDocumentTypes=\{scheme\.requiredDocumentTypes\}/);
+  assert.match(reviewPage, /requiredDocumentTypes=\{scheme\.requiredDocumentTypes\}/);
+  assert.match(wizard, /Required documents:/);
+});
+
+test("published policy document requirements are read before submission validation", () => {
+  const submissionRoute = readFileSync(
+    join(
+      process.cwd(),
+      "app/api/student/applications/[applicationId]/submit/route.ts",
+    ),
+    "utf8",
+  );
+  const policyRead = submissionRoute.indexOf(
+    'tx.scholarshipVerificationPolicy.findFirst',
+  );
+  const validation = submissionRoute.indexOf(
+    'getSubmissionValidationFailure({',
+  );
+  assert.ok(policyRead >= 0 && policyRead < validation);
+  assert.match(submissionRoute, /requiredDocumentTypes,\s*documentLabels:/);
+  assert.match(submissionRoute, /buildDocumentVersionSnapshot\(\s*application\.documents/);
 });
 
 test("server-side step validation rejects missing fields before the next step", () => {
@@ -155,4 +221,3 @@ test("submitted applications remain immutable through draft and document APIs", 
   assert.match(documentRoute, /status:\s*ApplicationStatus\.DRAFT/);
   assert.match(submissionRoute, /status:\s*ApplicationStatus\.DRAFT/);
 });
-

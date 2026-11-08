@@ -7,6 +7,11 @@ import {
 } from "@/lib/adminScholarshipPolicy";
 import { validateVerificationPolicyForPublication } from "@/lib/scholarshipVerificationPolicy";
 import { prisma } from "@/lib/prisma";
+import {
+  canCreateSyntheticPolicy,
+  createSyntheticPolicyInput,
+  isSyntheticPolicyConfiguration,
+} from "@/lib/syntheticVerificationPolicy";
 
 type RouteContext = {
   params: Promise<{ schemeId: string; policyId: string }>;
@@ -30,9 +35,34 @@ export async function POST(_request: Request, { params }: RouteContext) {
     const result = await prisma.$transaction(async (transaction) => {
       const current = await transaction.scholarshipVerificationPolicy.findFirst({
         where: { id: policyId, schemeId },
+        include: { scheme: { select: { name: true } } },
       });
       if (!current) return { kind: "not_found" as const };
       if (current.status !== "DRAFT") return { kind: "immutable" as const };
+      if (
+        current.isSynthetic &&
+        (!canCreateSyntheticPolicy(process.env.NODE_ENV, current.scheme.name) ||
+          !isSyntheticPolicyConfiguration({
+            eligibilityCriteria: current.eligibilityCriteria,
+            requiredDocumentTypes: current.requiredDocumentTypes,
+            aiEligibleDocumentTypes: current.aiEligibleDocumentTypes,
+            officialGuidelineReference: current.officialGuidelineReference,
+            guidelineRevision: current.guidelineRevision,
+          }))
+      ) {
+        return { kind: "synthetic_blocked" as const };
+      }
+      if (
+        current.isSynthetic &&
+        await transaction.scholarshipVerificationPolicy.count({
+          where: {
+            schemeId,
+            isSynthetic: false,
+          },
+        }) > 0
+      ) {
+        return { kind: "official_policy_exists" as const };
+      }
 
       const validation = validateVerificationPolicyForPublication({
         eligibilityCriteria: current.eligibilityCriteria,
@@ -73,6 +103,10 @@ export async function POST(_request: Request, { params }: RouteContext) {
         return NextResponse.json({ error: "Policy cannot be published until all criteria and document settings are valid.", code: "POLICY_INVALID", details: result.errors }, { status: 400 });
       case "conflict":
         return NextResponse.json({ error: "The policy changed concurrently. Refresh and try again.", code: "POLICY_CONFLICT" }, { status: 409 });
+      case "synthetic_blocked":
+        return NextResponse.json({ error: "Synthetic policies can only be published from the fixed development test fixture.", code: "SYNTHETIC_POLICY_BLOCKED" }, { status: 403 });
+      case "official_policy_exists":
+        return NextResponse.json({ error: "A synthetic policy cannot coexist with an official policy draft or published version.", code: "OFFICIAL_POLICY_EXISTS" }, { status: 409 });
       case "published":
         return NextResponse.json({ policy: result.policy });
     }

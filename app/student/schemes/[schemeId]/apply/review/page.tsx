@@ -24,6 +24,7 @@ export default async function ApplicationFinalReviewPage({
           schemeId={scheme.id}
           schemeName={scheme.name}
           schemeType={scheme.type}
+          requiredDocumentTypes={scheme.requiredDocumentTypes}
         />
       </main>
     </div>

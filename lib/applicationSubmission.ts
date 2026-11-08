@@ -4,6 +4,7 @@ export type SubmissionAbortResult =
   | { kind: "not_found" }
   | { kind: "not_draft" }
   | { kind: "inactive_scheme" }
+  | { kind: "synthetic_policy_blocked" }
   | { kind: "invalid_application"; errors: string[] }
   | { kind: "missing_documents"; documents: string[] };
 
@@ -27,6 +28,7 @@ export function getSubmissionFailureStatus(
       return 404;
     case "not_draft":
     case "inactive_scheme":
+    case "synthetic_policy_blocked":
       return 409;
     case "invalid_application":
     case "missing_documents":

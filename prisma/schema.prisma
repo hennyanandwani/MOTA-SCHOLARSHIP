@@ -159,6 +159,7 @@ model ScholarshipVerificationPolicy {
   scheme                    ScholarshipScheme                 @relation(fields: [schemeId], references: [id], onDelete: Restrict)
   version                   Int
   status                    ScholarshipVerificationPolicyStatus @default(DRAFT)
+  isSynthetic               Boolean                           @default(false)
   eligibilityCriteria       Json
   requiredDocumentTypes     DocumentType[]                    @default([])
   aiEligibleDocumentTypes   DocumentType[]                    @default([])
@@ -262,6 +263,8 @@ model AiVerificationJob {
   policyId        String?
   policy          ScholarshipVerificationPolicy? @relation(fields: [policyId], references: [id], onDelete: Restrict)
   policySnapshot  Json?
+  isSynthetic     Boolean                  @default(false)
+  documentSnapshot Json?
   requestReason   String?
   inputVersion    Int
   idempotencyKey  String                 @unique

@@ -20,7 +20,7 @@ export default function AdminSchemesPage() {
       <Sidebar items={adminNavigation} title="Administration" context="admin" />
       <main className="min-w-0 p-4 sm:p-5 lg:ml-64 lg:p-8">
         <div className="mx-auto max-w-[1600px]">
-          <DatabaseSchemeManagement />
+          <DatabaseSchemeManagement allowSyntheticTestPolicy={process.env.NODE_ENV === 'development'} />
         </div>
       </main>
     </div>
