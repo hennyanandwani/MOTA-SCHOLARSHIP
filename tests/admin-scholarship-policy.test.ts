@@ -17,6 +17,12 @@ import {
   parsePolicyMutation,
 } from "../lib/adminScholarshipPolicy";
 import {
+  addEligibilityCriterion,
+  buildPolicyPayload,
+  createEmptyPolicyEditor,
+  makePolicyEditor,
+} from "../lib/scholarshipPolicyEditor";
+import {
   SYNTHETIC_POLICY_LABEL,
   SYNTHETIC_AI_DOCUMENT_TYPES,
   SYNTHETIC_REQUIRED_DOCUMENT_TYPES,
@@ -72,6 +78,51 @@ test("policy mutation accepts valid drafts and produces persisted draft/update d
   assert.deepEqual(updated.aiEligibleDocumentTypes, ["INCOME_CERTIFICATE"]);
 });
 
+test("admin editor criteria serialize, persist, and rehydrate with typed values", () => {
+  const editor = addEligibilityCriterion(createEmptyPolicyEditor());
+  editor.eligibilityCriteria[0] = {
+    field: "annual_income",
+    operator: "lte",
+    valueText: "250000",
+    reason_code: "INCOME_LIMIT",
+    explanation: "Annual family income must not exceed INR 250000.",
+  };
+  editor.eligibilityCriteria = [
+    ...editor.eligibilityCriteria,
+    {
+      field: "academic.academicLevel",
+      operator: "in",
+      valueText: "Post-Matric, Undergraduate",
+      reason_code: "ACADEMIC_LEVEL",
+      explanation: "Applicant must be enrolled at an eligible academic level.",
+    },
+  ];
+  editor.requiredDocumentTypes = ["INCOME_CERTIFICATE", "MARKSHEET"];
+  editor.aiEligibleDocumentTypes = ["INCOME_CERTIFICATE"];
+  editor.officialGuidelineReference = "https://example.gov/scheme-guidelines";
+  editor.guidelineRevision = "2026-27";
+
+  const payload = buildPolicyPayload(editor);
+  const parsed = parsePolicyMutation(payload);
+  assert.equal(parsed.success, true);
+  if (!parsed.success) return;
+
+  assert.deepEqual(parsed.value.eligibilityCriteria.map(({ value }) => value), [
+    250000,
+    ["Post-Matric", "Undergraduate"],
+  ]);
+  const persisted = buildDraftPolicyData("scheme-1", 2, parsed.value);
+  const reloaded = makePolicyEditor({
+    eligibilityCriteria: persisted.eligibilityCriteria,
+    requiredDocumentTypes: persisted.requiredDocumentTypes,
+    aiEligibleDocumentTypes: persisted.aiEligibleDocumentTypes,
+    officialGuidelineReference: persisted.officialGuidelineReference,
+    guidelineRevision: persisted.guidelineRevision,
+  });
+
+  assert.deepEqual(buildPolicyPayload(reloaded), payload);
+});
+
 test("rejects malformed, unsupported and invalid policy input before persistence", () => {
   assert.equal(parsePolicyMutation({ ...validPayload, status: "PUBLISHED" }).success, false);
   assert.equal(parsePolicyMutation({ ...validPayload, criteria: [] }).success, false);
@@ -85,6 +136,25 @@ test("rejects malformed, unsupported and invalid policy input before persistence
   }).success, false);
 });
 
+test("official guideline reference is optional for drafts and required for publication", () => {
+  const draft = parsePolicyMutation({
+    ...validPayload,
+    officialGuidelineReference: "",
+  });
+  assert.equal(draft.success, true);
+  assert.equal(
+    validateVerificationPolicyForPublication({
+      ...validPayload,
+      officialGuidelineReference: "",
+    }).success,
+    false,
+  );
+  assert.equal(
+    validateVerificationPolicyForPublication(validPayload).success,
+    true,
+  );
+});
+
 test("publication requires guideline, criteria metadata and required document configuration", () => {
   assert.equal(validateVerificationPolicyForPublication({
     ...validPayload,
@@ -96,6 +166,29 @@ test("publication requires guideline, criteria metadata and required document co
     aiEligibleDocumentTypes: [],
   }).success, false);
   assert.equal(validateVerificationPolicyForPublication(validPayload).success, true);
+});
+
+test("student application workflow prefers persisted schemes and resolves only published requirements", () => {
+  const workflow = read("lib/persistedScholarshipScheme.ts");
+  const persistedLookup = workflow.indexOf(
+    "const scheme = await getPersistedScholarshipScheme(schemeId);",
+  );
+  const demoLookup = workflow.indexOf(
+    "const demoScheme = getSchemeWithDetails(schemeId)?.scheme;",
+  );
+  assert.ok(persistedLookup >= 0 && demoLookup > persistedLookup);
+
+  const resolver = read("lib/schemeRequiredDocuments.ts");
+  assert.match(resolver, /where:\s*\{\s*schemeId,\s*status:\s*"PUBLISHED"\s*\}/);
+  assert.match(resolver, /orderBy:\s*\{\s*version:\s*"desc"\s*\}/);
+  assert.match(resolver, /select:\s*\{\s*requiredDocumentTypes:\s*true\s*\}/);
+  for (const route of [
+    "app/student/schemes/[schemeId]/apply/documents/page.tsx",
+    "app/student/schemes/[schemeId]/apply/review/page.tsx",
+  ]) {
+    assert.match(read(route), /getSchemeWorkflowInfo\(schemeId\)/);
+    assert.match(read(route), /requiredDocumentTypes=\{scheme\.requiredDocumentTypes\}/);
+  }
 });
 
 test("published policies cannot be edited and publisher metadata comes from the server", () => {

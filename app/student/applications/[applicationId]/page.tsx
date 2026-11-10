@@ -16,6 +16,7 @@ import { AiCorrectionForm } from '@/components/student/applications/AiCorrection
 import { AiVerificationProgress } from '@/components/student/applications/AiVerificationProgress';
 import { SYNTHETIC_POLICY_LABEL } from '@/lib/syntheticVerificationPolicy';
 import { resolveSchemeRequiredDocumentTypes } from '@/lib/schemeRequiredDocuments';
+import { isRetryableTechnicalFailure } from '@/lib/studentAiRetry';
 
 const statusLabels: Record<string, string> = {
   DRAFT: 'Draft',
@@ -91,6 +92,7 @@ export default async function ApplicationTrackingRoute({
         select: {
           inputVersion: true,
           status: true,
+          lastErrorCode: true,
           outcome: true,
           completedAt: true,
           isSynthetic: true,
@@ -115,6 +117,14 @@ export default async function ApplicationTrackingRoute({
   const documentsByType = new Map<string, (typeof application.documents)[number]>();
   const latestAiJob = application.aiVerificationJobs[0];
   const isCurrentJob = latestAiJob?.inputVersion === application.aiInputVersion;
+  const canRetryAiVerification = isRetryableTechnicalFailure({
+    verificationStatus: application.aiVerificationStatus,
+    currentInputVersion: application.aiInputVersion,
+    jobInputVersion: latestAiJob?.inputVersion ?? -1,
+    jobStatus: latestAiJob?.status ?? '',
+    jobOutcome: latestAiJob?.outcome ?? null,
+    lastErrorCode: latestAiJob?.lastErrorCode ?? null,
+  });
   const requiredDocumentTypeList = isCurrentJob
     ? getRequiredDocumentTypesFromPolicySnapshot(latestAiJob.policySnapshot)
     : application.status === 'DRAFT'
@@ -200,6 +210,7 @@ export default async function ApplicationTrackingRoute({
                   <AiVerificationProgress
                     applicationId={application.id}
                     initialStatus={application.aiVerificationStatus}
+                    initialRetryAvailable={canRetryAiVerification}
                     initialReason={getStudentAiReason(
                       application.aiVerificationStatus,
                       application.studentAiReason,

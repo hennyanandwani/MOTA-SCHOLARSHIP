@@ -343,14 +343,30 @@ test("student AI status API is application-scoped and the UI polls only pending 
   const route = read("app/api/student/applications/[applicationId]/ai-status/route.ts");
   assert.match(route, /requireStudent\(\)/);
   assert.match(route, /where:\s*\{\s*id:\s*applicationId,\s*studentId:\s*auth\.user\.student\.id\s*\}/);
-  assert.match(route, /select:\s*\{\s*aiVerificationStatus:\s*true,\s*studentAiReason:\s*true\s*\}/);
-  assert.doesNotMatch(route, /aiVerificationJobs|aiExplanation|storagePath|provider|token/i);
+  assert.match(route, /aiVerificationStatus:\s*true/);
+  assert.match(route, /studentAiReason:\s*true/);
+  assert.match(route, /lastErrorCode:\s*true/);
+  assert.match(route, /retryAvailable:\s*isRetryableTechnicalFailure/);
+  assert.match(route, /aiVerificationJobs:\s*\{\s*orderBy:\s*\{\s*inputVersion:\s*["']desc["']\s*\}/);
+  assert.doesNotMatch(route, /aiExplanation|storagePath|provider|token/i);
 
   const progress = read("components/student/applications/AiVerificationProgress.tsx");
   assert.match(progress, /'WAITING_FOR_CONFIGURATION',\s*'QUEUED',\s*'IN_PROGRESS'/);
   assert.match(progress, /setTimeout\(\(\) => void refreshStatus\(\), 5000\)/);
-  assert.match(progress, /activeStatuses\.has\(currentStatus\)/);
+  assert.match(progress, /activeStatuses\.has\(latestStatusRef\.current\)/);
   assert.doesNotMatch(progress, /percentage|percent|jobId|storagePath|provider|dispatchToken/i);
+});
+
+test("student status polling survives a transient first poll failure after retry", () => {
+  const progress = read("components/student/applications/AiVerificationProgress.tsx");
+  assert.match(progress, /const latestStatusRef = useRef\(initialStatus\)/);
+  assert.match(progress, /latestStatusRef\.current = payload\.status/);
+  assert.match(progress, /active && activeStatuses\.has\(latestStatusRef\.current\)/);
+  assert.match(
+    progress,
+    /setStatus\('WAITING_FOR_CONFIGURATION'\);\s*latestStatusRef\.current = 'WAITING_FOR_CONFIGURATION';\s*setPollingVersion/,
+  );
+  assert.match(progress, /catch \{\s*if \(active && !controller\.signal\.aborted\) setRefreshFailed\(true\);/);
 });
 
 test("submission transaction stores one pending AI job only after validated submission", () => {

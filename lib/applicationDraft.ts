@@ -181,28 +181,89 @@ export function createEmptyApplicationData(): ApplicationData {
 }
 
 export function createApplicationProfilePrefill(profile: {
-  fullName: string;
+  autoFillEnabled: boolean;
   email: string;
+  firstName?: unknown;
+  middleName?: unknown;
+  lastName?: unknown;
+  dateOfBirth?: unknown;
+  gender?: unknown;
+  category?: unknown;
+  stCertificateNumber?: unknown;
+  mobileNumber?: unknown;
+  address?: unknown;
+  villageTown?: unknown;
+  district?: unknown;
+  state?: unknown;
+  pinCode?: unknown;
+  academicLevel?: unknown;
   courseName?: unknown;
+  specialization?: unknown;
   instituteName?: unknown;
-  annualIncome?: unknown;
-  academicPercentage?: unknown;
+  institutionType?: unknown;
+  universityBoard?: unknown;
+  currentYearSemester?: unknown;
+  admissionYear?: unknown;
+  academicSession?: unknown;
+  previousQualification?: unknown;
+  previousResult?: unknown;
+  enrollmentNumber?: unknown;
+  expectedGraduationYear?: unknown;
+  guardianName?: unknown;
+  motherName?: unknown;
+  familyAnnualIncome?: unknown;
+  incomeCertificateNumber?: unknown;
+  guardianOccupation?: unknown;
+  familyMembers?: unknown;
+  residentialStatus?: unknown;
+  accountHolderName?: unknown;
+  bankName?: unknown;
+  accountNumber?: unknown;
+  ifscCode?: unknown;
+  branchName?: unknown;
 }): ApplicationData {
   const data = createEmptyApplicationData();
-  const nameParts = profile.fullName.trim().split(/\s+/).filter(Boolean);
+  if (!profile.autoFillEnabled) return data;
 
-  data.personal.firstName = nameParts[0] ?? "";
-  data.personal.middleName = nameParts.length > 2
-    ? nameParts.slice(1, -1).join(" ")
-    : "";
-  data.personal.lastName = nameParts.length > 1
-    ? nameParts[nameParts.length - 1]
-    : "";
+  data.personal.firstName = profileValue(profile.firstName);
+  data.personal.middleName = profileValue(profile.middleName);
+  data.personal.lastName = profileValue(profile.lastName);
+  data.personal.dateOfBirth = profileValue(profile.dateOfBirth);
+  data.personal.gender = profileValue(profile.gender);
+  data.personal.category = profileValue(profile.category);
+  data.personal.stCertificateNumber = profileValue(profile.stCertificateNumber);
+  data.personal.mobileNumber = profileValue(profile.mobileNumber);
   data.personal.emailAddress = profile.email;
+  data.personal.address = profileValue(profile.address);
+  data.personal.villageTown = profileValue(profile.villageTown);
+  data.personal.district = profileValue(profile.district);
+  data.personal.state = profileValue(profile.state);
+  data.personal.pinCode = profileValue(profile.pinCode);
+  data.academic.academicLevel = profileValue(profile.academicLevel);
   data.academic.course = profileValue(profile.courseName);
+  data.academic.specialization = profileValue(profile.specialization);
   data.academic.institutionName = profileValue(profile.instituteName);
-  data.academic.previousResult = profileValue(profile.academicPercentage);
-  data.family.annualIncome = profileValue(profile.annualIncome);
+  data.academic.institutionType = profileValue(profile.institutionType);
+  data.academic.universityBoard = profileValue(profile.universityBoard);
+  data.academic.currentYearSemester = profileValue(profile.currentYearSemester);
+  data.academic.admissionYear = profileValue(profile.admissionYear);
+  data.academic.academicSession = profileValue(profile.academicSession);
+  data.academic.previousQualification = profileValue(profile.previousQualification);
+  data.academic.previousResult = profileValue(profile.previousResult);
+  data.academic.enrollmentNumber = profileValue(profile.enrollmentNumber);
+  data.academic.expectedGraduationYear = profileValue(profile.expectedGraduationYear);
+  data.family.guardianName = profileValue(profile.guardianName);
+  data.family.motherName = profileValue(profile.motherName);
+  data.family.annualIncome = profileValue(profile.familyAnnualIncome);
+  data.family.incomeCertificateNumber = profileValue(profile.incomeCertificateNumber);
+  data.family.guardianOccupation = profileValue(profile.guardianOccupation);
+  data.family.familyMembers = profileValue(profile.familyMembers);
+  data.family.residentialStatus = profileValue(profile.residentialStatus);
+  data.bank.accountHolderName = profileValue(profile.accountHolderName);
+  data.bank.bankName = profileValue(profile.bankName);
+  data.bank.accountNumber = profileValue(profile.accountNumber);
+  data.bank.ifscCode = profileValue(profile.ifscCode);
+  data.bank.branchName = profileValue(profile.branchName);
 
   return data;
 }

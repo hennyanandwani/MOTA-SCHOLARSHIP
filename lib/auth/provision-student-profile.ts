@@ -4,6 +4,7 @@ import {
   getExistingUserRecoveryAction,
   getProvisioningUniqueConflictCode,
 } from "@/lib/auth/provisioningRecovery";
+import { getInitialStudentAutoFillEnabled } from "@/lib/auth/studentAutoFill";
 
 export type StudentProvisioningErrorCode =
   | "INVALID_AUTH_ID"
@@ -49,6 +50,14 @@ export async function provisionStudentProfile(authUser: SupabaseUser) {
 
   try {
     return await prisma.$transaction(async (tx) => {
+      async function getAutoFillDefault() {
+        const configuration = await tx.systemConfiguration.findUnique({
+          where: { id: "default" },
+          select: { defaultAutoFillEnabled: true },
+        });
+        return getInitialStudentAutoFillEnabled(configuration);
+      }
+
       const existingUser = await tx.user.findUnique({
         where: { supabaseAuthId: authUser.id },
         include: { student: true },
@@ -67,10 +76,12 @@ export async function provisionStudentProfile(authUser: SupabaseUser) {
           throw new StudentProvisioningError("PROFILE_METADATA_MISSING");
         }
 
+        const autoFillEnabled = await getAutoFillDefault();
         await tx.student.create({
           data: {
             userId: existingUser.id,
             rollNumber,
+            autoFillEnabled,
           },
         });
 
@@ -99,6 +110,7 @@ export async function provisionStudentProfile(authUser: SupabaseUser) {
         throw new StudentProvisioningError("EMAIL_ALREADY_LINKED");
       }
 
+      const autoFillEnabled = await getAutoFillDefault();
       return tx.user.create({
         data: {
           supabaseAuthId: authUser.id,
@@ -106,7 +118,7 @@ export async function provisionStudentProfile(authUser: SupabaseUser) {
           fullName,
           role: "STUDENT",
           student: {
-            create: { rollNumber },
+            create: { rollNumber, autoFillEnabled },
           },
         },
         include: { student: true },

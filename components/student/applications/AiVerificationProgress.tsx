@@ -1,12 +1,18 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Clock3, LoaderCircle, ShieldCheck } from 'lucide-react';
 import type { Phase6AiStatus } from '@/lib/phase6Workflow';
+import {
+  decrementStudentAiRetryCountdown,
+  getStudentAiRetryButtonLabel,
+  STUDENT_AI_RETRY_COOLDOWN_SECONDS,
+} from '@/lib/studentAiRetry';
 
 type StatusResponse = {
   status: Phase6AiStatus;
   reason: string | null;
+  retryAvailable: boolean;
 };
 
 const statusPresentation: Record<
@@ -79,7 +85,9 @@ function isStatusResponse(value: unknown): value is StatusResponse {
     typeof value.status === 'string' &&
     supportedStatuses.has(value.status) &&
     'reason' in value &&
-    (typeof value.reason === 'string' || value.reason === null)
+    (typeof value.reason === 'string' || value.reason === null) &&
+    'retryAvailable' in value &&
+    typeof value.retryAvailable === 'boolean'
   );
 }
 
@@ -87,20 +95,48 @@ export function AiVerificationProgress({
   applicationId,
   initialStatus,
   initialReason = null,
+  initialRetryAvailable = false,
   compact = false,
 }: {
   applicationId: string;
   initialStatus: Phase6AiStatus;
   initialReason?: string | null;
+  initialRetryAvailable?: boolean;
   compact?: boolean;
 }) {
   const [status, setStatus] = useState(initialStatus);
   const [reason, setReason] = useState(initialReason);
   const [refreshFailed, setRefreshFailed] = useState(false);
+  const [retryAvailable, setRetryAvailable] = useState(initialRetryAvailable);
+  const [retryCountdown, setRetryCountdown] = useState<number | null>(
+    initialRetryAvailable ? STUDENT_AI_RETRY_COOLDOWN_SECONDS : null,
+  );
+  const [retrying, setRetrying] = useState(false);
+  const [retryProgressActive, setRetryProgressActive] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+  const [pollingVersion, setPollingVersion] = useState(0);
+  const retryLock = useRef(false);
+  const retryAvailableRef = useRef(initialRetryAvailable);
+  const latestStatusRef = useRef(initialStatus);
+
+  useEffect(() => {
+    if (!retryAvailable) return;
+    const timer = setInterval(() => {
+      setRetryCountdown(decrementStudentAiRetryCountdown);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [retryAvailable]);
+
+  const updateRetryAvailability = useCallback((available: boolean) => {
+    if (available && !retryAvailableRef.current) {
+      setRetryCountdown(STUDENT_AI_RETRY_COOLDOWN_SECONDS);
+    }
+    retryAvailableRef.current = available;
+    setRetryAvailable(available);
+  }, []);
 
   useEffect(() => {
     let active = true;
-    let currentStatus = initialStatus;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let controller: AbortController | undefined;
 
@@ -121,16 +157,21 @@ export function AiVerificationProgress({
           throw new Error('Unable to refresh AI verification status.');
         }
 
-        currentStatus = payload.status;
-        if (active) {
+        latestStatusRef.current = payload.status;
+        if (active && !retryLock.current) {
           setStatus(payload.status);
           setReason(payload.status === 'INELIGIBLE' ? payload.reason : null);
+          updateRetryAvailability(payload.retryAvailable);
+          if (!activeStatuses.has(payload.status)) {
+            setRetryProgressActive(false);
+          }
           setRefreshFailed(false);
+          setRetryError(null);
         }
       } catch {
         if (active && !controller.signal.aborted) setRefreshFailed(true);
       } finally {
-        if (active && activeStatuses.has(currentStatus)) {
+        if (active && activeStatuses.has(latestStatusRef.current)) {
           timer = setTimeout(() => void refreshStatus(), 5000);
         }
       }
@@ -142,11 +183,69 @@ export function AiVerificationProgress({
       if (timer) clearTimeout(timer);
       controller?.abort();
     };
-  }, [applicationId, initialStatus]);
+  }, [applicationId, initialStatus, pollingVersion, updateRetryAvailability]);
+
+  async function retryVerification() {
+    if (
+      retryLock.current ||
+      retrying ||
+      !retryAvailable ||
+      retryCountdown !== 0
+    ) {
+      return;
+    }
+    retryLock.current = true;
+    setRetrying(true);
+    setRetryProgressActive(true);
+    setRetryError(null);
+    updateRetryAvailability(false);
+    setReason(null);
+    setPollingVersion((version) => version + 1);
+
+    try {
+      const response = await fetch(
+        `/api/student/applications/${encodeURIComponent(applicationId)}/ai-retry`,
+        {
+          method: 'POST',
+          cache: 'no-store',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        },
+      );
+      const payload: unknown = await response.json();
+      if (!response.ok) {
+        throw new Error(
+          typeof payload === 'object' &&
+            payload !== null &&
+            'error' in payload &&
+            typeof payload.error === 'string'
+            ? payload.error
+            : 'Unable to retry AI verification.',
+        );
+      }
+      updateRetryAvailability(false);
+      setStatus('WAITING_FOR_CONFIGURATION');
+      latestStatusRef.current = 'WAITING_FOR_CONFIGURATION';
+      setPollingVersion((version) => version + 1);
+    } catch (error) {
+      setRetryError(
+        error instanceof Error ? error.message : 'Unable to retry AI verification.',
+      );
+      setRetryProgressActive(false);
+      setPollingVersion((version) => version + 1);
+    } finally {
+      retryLock.current = false;
+      setRetrying(false);
+    }
+  }
 
   const presentation = statusPresentation[status];
-  const Icon = presentation.icon;
   const isActive = activeStatuses.has(status);
+  const showRetryProgress = retryProgressActive && isActive;
+  const Icon = retrying || showRetryProgress
+    ? LoaderCircle
+    : presentation.icon;
 
   return (
     <div
@@ -162,12 +261,20 @@ export function AiVerificationProgress({
           <Icon
             size={18}
             aria-hidden="true"
-            className={status === 'IN_PROGRESS' ? 'animate-spin' : undefined}
+            className={status === 'IN_PROGRESS' || retrying || showRetryProgress
+              ? 'animate-spin'
+              : undefined}
           />
         </span>
         <div className="min-w-0">
           <p className="text-sm font-semibold">{presentation.title}</p>
-          <p className="mt-1 text-xs leading-5 opacity-90">{presentation.description}</p>
+          <p className="mt-1 text-xs leading-5 opacity-90">
+            {retrying
+              ? 'Starting verification retry…'
+              : showRetryProgress && status === 'WAITING_FOR_CONFIGURATION'
+                ? 'Your retry is submitted. Verification is starting and status refreshes automatically.'
+                : presentation.description}
+          </p>
           {status === 'INELIGIBLE' && reason && (
             <p className="mt-2 text-xs font-medium leading-5">{reason}</p>
           )}
@@ -175,6 +282,23 @@ export function AiVerificationProgress({
             <p className="mt-2 text-xs leading-5">
               Status could not be refreshed{isActive ? '; we will try again.' : '.'}
             </p>
+          )}
+          {retryError && (
+            <p role="alert" className="mt-2 text-xs leading-5">
+              {retryError}
+            </p>
+          )}
+          {retryAvailable && (
+            <button
+              type="button"
+              onClick={() => void retryVerification()}
+              disabled={retrying || retryCountdown !== 0}
+              className="mt-3 inline-flex min-h-9 items-center justify-center rounded-lg bg-[#173F7A] px-3 text-xs font-semibold text-white hover:bg-[#123362] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {retrying
+                ? 'Retrying verification…'
+                : getStudentAiRetryButtonLabel(retryCountdown)}
+            </button>
           )}
           {isActive && (
             <p className="mt-2 text-[10px] font-medium uppercase tracking-wide opacity-75">

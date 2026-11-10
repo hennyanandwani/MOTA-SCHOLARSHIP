@@ -41,23 +41,22 @@ export async function getPersistedScholarshipScheme(
 export async function getSchemeWorkflowInfo(
   schemeId: string,
 ): Promise<SchemeWorkflowInfo | null> {
-  const demoScheme = getSchemeWithDetails(schemeId)?.scheme;
-  if (demoScheme) {
+  const scheme = await getPersistedScholarshipScheme(schemeId);
+  if (scheme) {
     return {
-      id: demoScheme.id,
-      name: demoScheme.name,
-      type: demoScheme.type,
-      requiredDocumentTypes: getEffectiveRequiredDocumentTypes(null),
+      id: scheme.id,
+      name: scheme.name,
+      type: scheme.type === "FELLOWSHIP" ? "Fellowship" : "Scholarship",
+      requiredDocumentTypes: await resolveSchemeRequiredDocumentTypes(scheme.id),
     };
   }
 
-  const scheme = await getPersistedScholarshipScheme(schemeId);
-  if (!scheme) return null;
-
+  const demoScheme = getSchemeWithDetails(schemeId)?.scheme;
+  if (!demoScheme) return null;
   return {
-    id: scheme.id,
-    name: scheme.name,
-    type: scheme.type === "FELLOWSHIP" ? "Fellowship" : "Scholarship",
-    requiredDocumentTypes: await resolveSchemeRequiredDocumentTypes(scheme.id),
+    id: demoScheme.id,
+    name: demoScheme.name,
+    type: demoScheme.type,
+    requiredDocumentTypes: getEffectiveRequiredDocumentTypes(null),
   };
 }

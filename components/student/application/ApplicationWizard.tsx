@@ -73,13 +73,14 @@ export function ApplicationWizard({
 }) {
   const router = useRouter();
   const [application, setApplication] = useState<ApplicationData>(
-    () => initialData ?? createEmptyApplicationData(),
+    createEmptyApplicationData,
   );
   const [declarations, setDeclarations] = useState<ApplicationDeclarations>(emptyDeclarations);
   const [currentStep, setCurrentStep] = useState<ApplicationStep>(1);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [declarationError, setDeclarationError] = useState('');
   const [draftMessage, setDraftMessage] = useState('');
+  const [draftLoadError, setDraftLoadError] = useState('');
   const [savedAt, setSavedAt] = useState('');
   const [hasLoadedDraft, setHasLoadedDraft] = useState(false);
   const [applicationId, setApplicationId] = useState('');
@@ -104,6 +105,8 @@ export function ApplicationWizard({
         if (cachedApplicationId && active) setApplicationId(cachedApplicationId);
 
         const applications = await fetchStudentApplications();
+        if (!active) return;
+
         try {
           localStorage.removeItem(`student-application-draft:${scheme.id}`);
         } catch {
@@ -118,10 +121,10 @@ export function ApplicationWizard({
           (item) => item.schemeId === scheme.id && item.status === 'DRAFT',
         );
 
-        if (existingDraft && active) {
+        if (existingDraft) {
           const restoredData = restoreApplicationData(existingDraft.formData);
           if (!restoredData) {
-            setDraftMessage('Your saved application has an unsupported format. Please contact support before continuing.');
+            setDraftLoadError('Your saved application has an unsupported format. Please contact support before continuing.');
             return;
           }
 
@@ -140,17 +143,18 @@ export function ApplicationWizard({
           } catch {
             setDraftMessage('Draft loaded, but this browser could not remember its application ID. It can be recovered from your account.');
           }
+        } else {
+          setApplication(initialData ?? createEmptyApplicationData());
         }
+        setHasLoadedDraft(true);
       } catch (error) {
         if (active) {
-          setDraftMessage(
+          setDraftLoadError(
             error instanceof Error
               ? `Could not refresh your saved draft: ${error.message}`
               : 'Could not refresh your saved draft. Please try again.',
           );
         }
-      } finally {
-        if (active) setHasLoadedDraft(true);
       }
     }
 
@@ -158,7 +162,7 @@ export function ApplicationWizard({
     return () => {
       active = false;
     };
-  }, [applicationIdStorageKey, scheme.id]);
+  }, [applicationIdStorageKey, initialData, scheme.id]);
 
   function updateApplicationField(section: 'personal', field: keyof PersonalInformation, value: string): void;
   function updateApplicationField(section: 'academic', field: keyof AcademicInformation, value: string): void;
@@ -287,6 +291,28 @@ export function ApplicationWizard({
   const fullName = [application.personal.firstName, application.personal.middleName, application.personal.lastName]
     .filter(Boolean)
     .join(' ');
+
+  if (draftLoadError) {
+    return (
+      <section
+        role="alert"
+        className="mx-auto max-w-3xl rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm leading-6 text-[#A8323D]"
+      >
+        {draftLoadError}
+      </section>
+    );
+  }
+
+  if (!hasLoadedDraft) {
+    return (
+      <p
+        role="status"
+        className="mx-auto max-w-3xl rounded-xl border border-[#DCE3EC] bg-white p-5 text-sm text-[#64748B]"
+      >
+        Loading your saved application...
+      </p>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-[1440px] space-y-5">

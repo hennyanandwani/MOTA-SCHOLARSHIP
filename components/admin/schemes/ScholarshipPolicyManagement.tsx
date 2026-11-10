@@ -11,6 +11,15 @@ import {
   type VerificationDocumentType,
 } from "@/lib/scholarshipVerificationPolicy";
 import {
+  addEligibilityCriterion,
+  buildPolicyPayload,
+  createEmptyPolicyEditor,
+  makePolicyEditor,
+  POLICY_CRITERIA_OPERATORS,
+  type CriterionEditor,
+  type PolicyEditor,
+} from "@/lib/scholarshipPolicyEditor";
+import {
   SYNTHETIC_POLICY_LABEL,
   isSyntheticTestSchemeName,
 } from "@/lib/syntheticVerificationPolicy";
@@ -28,33 +37,6 @@ type PolicyView = {
   publishedAt: string | null;
   publishedBy: { id: string; fullName: string | null } | null;
 };
-
-type CriterionEditor = {
-  field: string;
-  operator: CriteriaOperator;
-  valueText: string;
-  reason_code: string;
-  explanation: string;
-};
-
-type PolicyEditor = {
-  eligibilityCriteria: CriterionEditor[];
-  requiredDocumentTypes: VerificationDocumentType[];
-  aiEligibleDocumentTypes: VerificationDocumentType[];
-  officialGuidelineReference: string;
-  guidelineRevision: string;
-};
-
-const operators: CriteriaOperator[] = [
-  "eq",
-  "ne",
-  "lt",
-  "lte",
-  "gt",
-  "gte",
-  "in",
-  "not_in",
-];
 
 const fieldClass =
   "mt-1 min-h-10 w-full rounded-lg border border-[#DCE3EC] bg-white px-3 py-2 text-sm text-[#172033] outline-none focus:border-[#2563A8] focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50";
@@ -96,90 +78,6 @@ function parsePolicy(value: unknown): PolicyView | null {
   return isRecord(value) && isPolicy(value.policy) ? value.policy : null;
 }
 
-function makeEditor(policy?: PolicyView): PolicyEditor {
-  const rawCriteria = Array.isArray(policy?.eligibilityCriteria)
-    ? policy.eligibilityCriteria
-    : [];
-  return {
-    eligibilityCriteria: rawCriteria.flatMap((criterion) => {
-      if (!isRecord(criterion)) return [];
-      const field = typeof criterion.field === "string" ? criterion.field : "";
-      const operator = operators.includes(criterion.operator as CriteriaOperator)
-        ? (criterion.operator as CriteriaOperator)
-        : "eq";
-      const value = criterion.value;
-      return [{
-        field,
-        operator,
-        valueText: Array.isArray(value)
-          ? value.map(String).join(", ")
-          : value === undefined || value === null
-            ? ""
-            : String(value),
-        reason_code:
-          typeof criterion.reason_code === "string" ? criterion.reason_code : "",
-        explanation:
-          typeof criterion.explanation === "string" ? criterion.explanation : "",
-      }];
-    }),
-    requiredDocumentTypes: (policy?.requiredDocumentTypes ?? []).filter(
-      (type): type is VerificationDocumentType =>
-        SUPPORTED_POLICY_DOCUMENT_TYPES.includes(
-          type as VerificationDocumentType,
-        ),
-    ),
-    aiEligibleDocumentTypes: (policy?.aiEligibleDocumentTypes ?? []).filter(
-      (type): type is VerificationDocumentType =>
-        SUPPORTED_POLICY_DOCUMENT_TYPES.includes(
-          type as VerificationDocumentType,
-        ),
-    ),
-    officialGuidelineReference: policy?.officialGuidelineReference ?? "",
-    guidelineRevision: policy?.guidelineRevision ?? "",
-  };
-}
-
-function buildPolicyPayload(editor: PolicyEditor) {
-  return {
-    eligibilityCriteria: editor.eligibilityCriteria.map((criterion) => {
-      const field = ELIGIBILITY_CRITERIA_FIELDS.find(
-        (option) => option.field === criterion.field,
-      );
-      const value =
-        criterion.operator === "in" || criterion.operator === "not_in"
-          ? criterion.valueText.split(",").map((part) => {
-              const trimmed = part.trim();
-              return field?.valueType === "number"
-                ? trimmed
-                  ? Number(trimmed)
-                  : Number.NaN
-                : trimmed;
-            })
-          : field?.valueType === "number"
-            ? criterion.valueText.trim()
-          ? Number(criterion.valueText)
-          : Number.NaN
-            : criterion.valueText;
-      const base = {
-        field: criterion.field,
-        operator: criterion.operator,
-        value,
-      };
-      return criterion.reason_code || criterion.explanation
-        ? {
-            ...base,
-            reason_code: criterion.reason_code,
-            explanation: criterion.explanation,
-          }
-        : base;
-    }),
-    requiredDocumentTypes: editor.requiredDocumentTypes,
-    aiEligibleDocumentTypes: editor.aiEligibleDocumentTypes,
-    officialGuidelineReference: editor.officialGuidelineReference,
-    guidelineRevision: editor.guidelineRevision,
-  };
-}
-
 function formatPublishedAt(value: string | null): string {
   if (!value) return "Not published";
   const date = new Date(value);
@@ -197,7 +95,7 @@ export function ScholarshipPolicyManagement({
 }) {
   const [policies, setPolicies] = useState<PolicyView[]>([]);
   const [selectedId, setSelectedId] = useState("");
-  const [editor, setEditor] = useState<PolicyEditor>(() => makeEditor());
+  const [editor, setEditor] = useState<PolicyEditor>(createEmptyPolicyEditor);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -237,7 +135,7 @@ export function ScholarshipPolicyManagement({
             result[0]?.id ??
             "";
       setSelectedId(nextId);
-      setEditor(makeEditor(result.find((policy) => policy.id === nextId)));
+      setEditor(makePolicyEditor(result.find((policy) => policy.id === nextId)));
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -250,12 +148,12 @@ export function ScholarshipPolicyManagement({
   }, [schemeId]);
 
   useEffect(() => {
-    void loadPolicies();
+    void Promise.resolve().then(() => loadPolicies());
   }, [loadPolicies]);
 
   function choosePolicy(id: string) {
     setSelectedId(id);
-    setEditor(makeEditor(policies.find((policy) => policy.id === id)));
+    setEditor(makePolicyEditor(policies.find((policy) => policy.id === id)));
     setError("");
     setNotice("");
   }
@@ -324,7 +222,7 @@ export function ScholarshipPolicyManagement({
         await requestJson(
           `/api/admin/schemes/${encodeURIComponent(schemeId)}/verification-policies`,
           "POST",
-          buildPolicyPayload(makeEditor()),
+          buildPolicyPayload(createEmptyPolicyEditor()),
         ),
       );
       if (!policy) throw new Error("The server returned an invalid policy.");
@@ -586,7 +484,7 @@ export function ScholarshipPolicyManagement({
               )}
               <fieldset disabled={readOnly || saving} className="space-y-3">
                 <legend className="text-xs font-bold uppercase tracking-wide text-[#64748B]">Eligibility criteria</legend>
-                <p className="text-xs text-[#64748B]">Use only eligibility terms verified against the official scholarship guideline.</p>
+                <p className="text-xs text-[#64748B]">Use only eligibility terms verified against the official scholarship guideline. Add at least one complete criterion before publishing.</p>
                 {editor.eligibilityCriteria.map((criterion, index) => {
                   const field = ELIGIBILITY_CRITERIA_FIELDS.find((option) => option.field === criterion.field);
                   const isArray = criterion.operator === "in" || criterion.operator === "not_in";
@@ -613,7 +511,7 @@ export function ScholarshipPolicyManagement({
                             value={criterion.operator}
                             onChange={(event) => updateCriterion(index, { operator: event.target.value as CriteriaOperator })}
                           >
-                            {operators.map((operator) => <option key={operator} value={operator}>{operator}</option>)}
+                            {POLICY_CRITERIA_OPERATORS.map((operator) => <option key={operator} value={operator}>{operator}</option>)}
                           </select>
                         </label>
                         <label className="text-xs font-semibold text-[#334155] sm:col-span-2">
@@ -652,18 +550,9 @@ export function ScholarshipPolicyManagement({
                 <button
                   type="button"
                   className={buttonClass}
-                  onClick={() => setEditor((current) => ({
-                    ...current,
-                    eligibilityCriteria: [...current.eligibilityCriteria, {
-                      field: "",
-                      operator: "eq",
-                      valueText: "",
-                      reason_code: "",
-                      explanation: "",
-                    }],
-                  }))}
+                  onClick={() => setEditor(addEligibilityCriterion)}
                 >
-                  <Plus size={14} aria-hidden="true" /> Add criterion
+                  <Plus size={14} aria-hidden="true" /> Add eligibility criterion
                 </button>
               </fieldset>
 
@@ -723,7 +612,7 @@ export function ScholarshipPolicyManagement({
               <fieldset disabled={readOnly || saving} className="grid gap-3 sm:grid-cols-2">
                 <legend className="text-xs font-bold uppercase tracking-wide text-[#64748B]">Official guideline</legend>
                 <label className="text-xs font-semibold text-[#334155] sm:col-span-2">
-                  Guideline reference or URL
+                  Guideline reference or URL (required to publish)
                   <input className={fieldClass} maxLength={2048} value={editor.officialGuidelineReference} onChange={(event) => setEditor((current) => ({ ...current, officialGuidelineReference: event.target.value }))} />
                 </label>
                 <label className="text-xs font-semibold text-[#334155] sm:col-span-2">

@@ -14,7 +14,7 @@ export function ProfileHeader() {
         <span aria-current="page" className="font-medium text-[#334155]">{t('Profile')}</span>
       </nav>
       <h1 className="mt-2 text-2xl font-bold text-[#172033]">{t('My Profile')}</h1>
-      <p className="mt-1 max-w-3xl text-sm leading-6 text-[#64748B]">{t('Manage your personal, academic and application-related information.')}</p>
+      <p className="mt-1 max-w-3xl text-sm leading-6 text-[#64748B]">{t('Manage your saved personal, contact, academic, family and bank information.')}</p>
     </header>
   );
 }

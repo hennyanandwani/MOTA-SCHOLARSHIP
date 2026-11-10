@@ -127,16 +127,64 @@ model Student {
   userId             String   @unique
   user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   rollNumber         String   @unique
+  autoFillEnabled    Boolean  @default(false)
   subCaste           String?
   annualIncome       Decimal? @db.Decimal(12, 2)
   academicPercentage Decimal? @db.Decimal(5, 2)
   courseName         String?
   instituteName      String?
+  firstName          String?
+  middleName         String?
+  lastName           String?
+  dateOfBirth        DateTime? @db.Date
+  gender             String?
+  category           String?
+  stCertificateNumber String?
+  mobileNumber       String?
+  address            String?
+  villageTown        String?
+  district           String?
+  state              String?
+  pinCode            String?
+  academicLevel      String?
+  specialization     String?
+  institutionType    String?
+  universityBoard    String?
+  currentYearSemester String?
+  admissionYear      Int?
+  academicSession    String?
+  previousQualification String?
+  previousResult     String?
+  enrollmentNumber   String?
+  expectedGraduationYear Int?
+  guardianName       String?
+  motherName         String?
+  familyAnnualIncome Decimal? @db.Decimal(12, 2)
+  incomeCertificateNumber String?
+  guardianOccupation String?
+  familyMembers      Int?
+  residentialStatus  String?
+  accountHolderName  String?
+  bankName           String?
+  accountNumber      String?
+  ifscCode           String?
+  branchName         String?
+  personalInfoUpdatedAt DateTime?
+  contactInfoUpdatedAt DateTime?
+  academicInfoUpdatedAt DateTime?
+  familyInfoUpdatedAt DateTime?
+  bankInfoUpdatedAt  DateTime?
 
   applications ScholarshipApplication[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model SystemConfiguration {
+  id                     String   @id @default("default")
+  defaultAutoFillEnabled Boolean  @default(false)
+  updatedAt              DateTime @updatedAt
 }
 
 model ScholarshipScheme {

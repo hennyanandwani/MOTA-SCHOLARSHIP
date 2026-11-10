@@ -1,35 +1,72 @@
 import { NextResponse } from "next/server";
-import { requireStudent } from "@/lib/studentAuth";
 import { prisma } from "@/lib/prisma";
-import { validateStudentProfileUpdate } from "@/lib/studentProfileValidation";
+import { requireStudent } from "@/lib/studentAuth";
+import {
+  getStudentProfileSectionTimestampUpdates,
+  validateStudentProfileUpdate,
+} from "@/lib/studentProfileValidation";
 
 export const runtime = "nodejs";
 
-function toProfile(user: {
-  id: string;
-  email: string;
-  fullName: string;
-  student: {
-    id: string;
-    rollNumber: string;
-    subCaste: string | null;
-    annualIncome: { toString(): string } | null;
-    academicPercentage: { toString(): string } | null;
-    courseName: string | null;
-    instituteName: string | null;
-  };
-}) {
+type AuthenticatedStudentUser = NonNullable<
+  Extract<Awaited<ReturnType<typeof requireStudent>>, { response: null }>["user"]
+>;
+
+function toProfile(user: AuthenticatedStudentUser) {
+  const student = user.student;
   return {
     id: user.id,
     email: user.email,
     fullName: user.fullName,
-    studentId: user.student.id,
-    rollNumber: user.student.rollNumber,
-    subCaste: user.student.subCaste,
-    annualIncome: user.student.annualIncome?.toString() ?? "",
-    academicPercentage: user.student.academicPercentage?.toString() ?? "",
-    courseName: user.student.courseName ?? "",
-    instituteName: user.student.instituteName ?? "",
+    studentId: student.id,
+    rollNumber: student.rollNumber,
+    autoFillEnabled: student.autoFillEnabled,
+    subCaste: student.subCaste ?? "",
+    annualIncome: student.annualIncome?.toString() ?? "",
+    academicPercentage: student.academicPercentage?.toString() ?? "",
+    courseName: student.courseName ?? "",
+    instituteName: student.instituteName ?? "",
+    firstName: student.firstName ?? "",
+    middleName: student.middleName ?? "",
+    lastName: student.lastName ?? "",
+    dateOfBirth: student.dateOfBirth?.toISOString().slice(0, 10) ?? "",
+    gender: student.gender ?? "",
+    category: student.category ?? "",
+    stCertificateNumber: student.stCertificateNumber ?? "",
+    mobileNumber: student.mobileNumber ?? "",
+    address: student.address ?? "",
+    villageTown: student.villageTown ?? "",
+    district: student.district ?? "",
+    state: student.state ?? "",
+    pinCode: student.pinCode ?? "",
+    academicLevel: student.academicLevel ?? "",
+    specialization: student.specialization ?? "",
+    institutionType: student.institutionType ?? "",
+    universityBoard: student.universityBoard ?? "",
+    currentYearSemester: student.currentYearSemester ?? "",
+    admissionYear: student.admissionYear,
+    academicSession: student.academicSession ?? "",
+    previousQualification: student.previousQualification ?? "",
+    previousResult: student.previousResult ?? "",
+    enrollmentNumber: student.enrollmentNumber ?? "",
+    expectedGraduationYear: student.expectedGraduationYear,
+    guardianName: student.guardianName ?? "",
+    motherName: student.motherName ?? "",
+    familyAnnualIncome: student.familyAnnualIncome?.toString() ?? "",
+    incomeCertificateNumber: student.incomeCertificateNumber ?? "",
+    guardianOccupation: student.guardianOccupation ?? "",
+    familyMembers: student.familyMembers,
+    residentialStatus: student.residentialStatus ?? "",
+    accountHolderName: student.accountHolderName ?? "",
+    bankName: student.bankName ?? "",
+    accountNumber: student.accountNumber ?? "",
+    ifscCode: student.ifscCode ?? "",
+    branchName: student.branchName ?? "",
+    personalInfoUpdatedAt: student.personalInfoUpdatedAt,
+    contactInfoUpdatedAt: student.contactInfoUpdatedAt,
+    academicInfoUpdatedAt: student.academicInfoUpdatedAt,
+    familyInfoUpdatedAt: student.familyInfoUpdatedAt,
+    bankInfoUpdatedAt: student.bankInfoUpdatedAt,
   };
 }
 
@@ -39,11 +76,8 @@ export async function GET() {
     if (auth.response) return auth.response;
 
     return NextResponse.json({ profile: toProfile(auth.user) });
-  } catch (error) {
-    console.error(
-      "Unable to load student profile:",
-      error instanceof Error ? error.name : "Unknown error",
-    );
+  } catch {
+    console.error("Unable to load student profile.");
     return NextResponse.json(
       { error: "Unable to load your profile." },
       { status: 500 },
@@ -78,6 +112,11 @@ export async function PATCH(request: Request) {
     }
 
     const { fullName, ...studentUpdate } = validation.value;
+    Object.assign(
+      studentUpdate,
+      getStudentProfileSectionTimestampUpdates(validation.value, new Date()),
+    );
+
     const updated = await prisma.$transaction(async (tx) => {
       const updatedUser = fullName === undefined
         ? { fullName: auth.user.fullName }
@@ -95,19 +134,15 @@ export async function PATCH(request: Request) {
           });
 
       return {
-        id: auth.user.id,
-        email: auth.user.email,
+        ...auth.user,
         fullName: updatedUser.fullName,
         student: updatedStudent,
       };
     });
 
     return NextResponse.json({ profile: toProfile(updated) });
-  } catch (error) {
-    console.error(
-      "Unable to update student profile:",
-      error instanceof Error ? error.name : "Unknown error",
-    );
+  } catch {
+    console.error("Unable to update student profile.");
     return NextResponse.json(
       { error: "Unable to save your profile. Please try again." },
       { status: 500 },
